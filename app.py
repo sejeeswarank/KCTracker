@@ -853,6 +853,29 @@ def change_password():
 
 
 # ---------------------------------------------------------------------------
+# Charts
+# ---------------------------------------------------------------------------
+@app.route("/charts")
+@login_required
+def charts():
+    return render_template("charts.html", username=session["username"])
+
+
+@app.route("/api/chart-data")
+@login_required
+def api_chart_data():
+    data = get_all_dates_summary(session["username"])
+    return jsonify(data)
+
+
+@app.route("/api/bank-balances")
+@login_required
+def api_bank_balances():
+    data = get_bank_balances_over_time(session["username"])
+    return jsonify(data)
+
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
