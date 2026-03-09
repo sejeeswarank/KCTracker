@@ -67,12 +67,12 @@ def _build_range_ledgers(username, start_date, end_date):
 
 def export_day_ledger(username, date, fmt):
     ledger = generate_ledger(username, date)
-    return _generate_file(username, [ledger], fmt, f"ledger_{date}")
+    return _generate_file(username, [ledger], fmt, f"statement_{date}")
 
 
 def export_range_ledger(username, start_date, end_date, fmt):
     ledgers = _build_range_ledgers(username, start_date, end_date)
-    label = f"ledger_{start_date}_to_{end_date}"
+    label = f"statement_{start_date}_to_{end_date}"
     return _generate_file(username, ledgers, fmt, label)
 
 

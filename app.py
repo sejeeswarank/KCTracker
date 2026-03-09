@@ -223,7 +223,6 @@ def api_events():
 def summary(date):
     username = session["username"]
     summary_data = get_summary_by_date(username, date)
-    # Display date in DD-MM-YYYY for UI
     display_date = _format_display_date(date)
     return render_template("summary.html", date=display_date, summary=summary_data, username=username)
 
@@ -258,6 +257,10 @@ def ledger_details(date):
         if idx < len(all_dates) - 1:
             next_date = all_dates[idx + 1]
 
+    # Pass bank names for "Add Manually" dropdown
+    saved_banks = get_all_bank_credentials(username)
+    bank_names = [b["bank_name"] for b in saved_banks]
+
     return render_template(
         "ledger_details.html",
         date=display_date,
@@ -266,6 +269,7 @@ def ledger_details(date):
         username=username,
         prev_date=prev_date,
         next_date=next_date,
+        bank_names=bank_names,
     )
 
 
@@ -435,272 +439,6 @@ def _handle_preview_save():
 
 
 # ---------------------------------------------------------------------------
-# Export routes
-# ---------------------------------------------------------------------------
-@app.route("/export/date/<date>/<fmt>")
-@login_required
-def export_date_route(date, fmt):
-    username = session["username"]
-    filepath = export_day_ledger(username, date, fmt)
-    return _send_and_cleanup(filepath)
-
-
-@app.route("/export/range/<fmt>")
-@login_required
-def export_range_route(fmt):
-    username = session["username"]
-    start_date = request.args.get("start")
-    end_date = request.args.get("end")
-    if not start_date or not end_date:
-        flash("Please provide both start and end dates.", "danger")
-        return redirect(url_for("dashboard"))
-    filepath = export_range_ledger(username, start_date, end_date, fmt)
-    return _send_and_cleanup(filepath)
-
-
-def _send_and_cleanup(filepath):
-    """Send file as download, then delete the temp export file."""
-    from flask import after_this_request
-
-    @after_this_request
-    def remove_file(response):
-        try:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-        except Exception:
-            pass
-        return response
-
-    return send_file(filepath, as_attachment=True)
-
-
-# ---------------------------------------------------------------------------
-# Get Statement route
-# ---------------------------------------------------------------------------
-def _get_latest_balance_for_statement(username, all_dates):
-    latest_balance = 0.0
-    latest_date_str = ""
-    if all_dates:
-        latest = all_dates[-1]
-        latest_date_str = latest.get("date", "")
-        try:
-            day_summary = get_summary_by_date(username, latest_date_str)
-            latest_balance = day_summary.get("balance", 0.0)
-        except Exception:
-            pass
-    return latest_balance, latest_date_str
-
-def _resolve_period_dates(period):
-    from datetime import date, timedelta
-    import calendar as _cal
-    today = date.today()
-    if period == "this_month":
-        return today.replace(day=1).isoformat(), today.isoformat()
-    if period == "last_month":
-        first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
-        last  = today.replace(day=1) - timedelta(days=1)
-        return first.isoformat(), last.isoformat()
-    if period == "last_3_months":
-        return (today - timedelta(days=90)).isoformat(), today.isoformat()
-    if period == "last_6_months":
-        return (today - timedelta(days=180)).isoformat(), today.isoformat()
-    if period == "this_year":
-        return today.replace(month=1, day=1).isoformat(), today.isoformat()
-    if period == "last_year":
-        return date(today.year - 1, 1, 1).isoformat(), date(today.year - 1, 12, 31).isoformat()
-    if period == "fy_current":   # Apr 1 current FY → today
-        fy_start = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
-        return fy_start.isoformat(), today.isoformat()
-    if period == "fy_previous":
-        fy_yr = today.year - 1 if today.month >= 4 else today.year - 2
-        return date(fy_yr, 4, 1).isoformat(), date(fy_yr + 1, 3, 31).isoformat()
-    if period == "all_time":
-        return "2000-01-01", today.isoformat()
-    if period and period.startswith("month_"):
-        parts = period.split("_")
-        yr, mo = int(parts[1]), int(parts[2])
-        last_day = _cal.monthrange(yr, mo)[1]
-        return f"{yr:04d}-{mo:02d}-01", f"{yr:04d}-{mo:02d}-{last_day:02d}"
-    return None, None
-
-def _build_month_options(all_dates):
-    month_options = []
-    seen = set()
-    import calendar as _cal2
-    for d_row in reversed(all_dates):
-        d_str = d_row.get("date", "")
-        if len(d_str) >= 7:
-            ym = d_str[:7]  # "YYYY-MM"
-            if ym not in seen:
-                seen.add(ym)
-                yr, mo = int(ym[:4]), int(ym[5:7])
-                label = f"{_cal2.month_name[mo]} {yr}"
-                month_options.append({"value": f"month_{yr}_{mo:02d}", "label": label})
-    return month_options
-
-def _handle_statement_post(username, latest_balance, latest_date_str, month_options):
-    period    = request.form.get("period", "recent_30").strip()
-    start_date = request.form.get("start_date", "").strip()
-    end_date   = request.form.get("end_date", "").strip()
-
-    if period == "recent_30":
-        transactions = get_recent_transactions(username, days=30)
-        if not transactions:
-            flash("No transactions found in the last 30 days.", "warning")
-            return render_template(_TPL_STATEMENT, username=username,
-                                   latest_balance=latest_balance, latest_date=latest_date_str,
-                                   month_options=month_options)
-        grouped = group_transactions_for_ledger(transactions)
-        end_date   = transactions[0]["date"]
-        start_date = transactions[-1]["date"]
-        return render_template(_TPL_STATEMENT,
-                               username=username, grouped=grouped,
-                               start_date=start_date, end_date=end_date,
-                               period=period, latest_balance=latest_balance,
-                               latest_date=latest_date_str, month_options=month_options)
-
-    if period != "custom":
-        start_date, end_date = _resolve_period_dates(period)
-
-    if not start_date or not end_date:
-        flash("Please select both start and end dates.", "danger")
-        return render_template(_TPL_STATEMENT, username=username,
-                               latest_balance=latest_balance, latest_date=latest_date_str,
-                               month_options=month_options)
-
-    transactions = get_transactions_by_range(username, start_date, end_date)
-    if not transactions:
-        flash("No transactions found for the selected range.", "warning")
-        return render_template(_TPL_STATEMENT, username=username,
-                               latest_balance=latest_balance, latest_date=latest_date_str,
-                               month_options=month_options)
-
-    grouped = group_transactions_for_ledger(transactions)
-    return render_template(
-        _TPL_STATEMENT,
-        username=username, grouped=grouped,
-        start_date=start_date, end_date=end_date,
-        period=period, latest_balance=latest_balance,
-        latest_date=latest_date_str, month_options=month_options,
-    )
-
-@app.route("/get-statement", methods=["GET", "POST"])
-@login_required
-def get_statement():
-    username = session["username"]
-
-    all_dates = get_all_dates_summary(username)
-    latest_balance, latest_date_str = _get_latest_balance_for_statement(username, all_dates)
-    month_options = _build_month_options(all_dates)
-
-    if request.method == "POST":
-        return _handle_statement_post(username, latest_balance, latest_date_str, month_options)
-
-    return render_template(_TPL_STATEMENT, username=username,
-                           latest_balance=latest_balance, latest_date=latest_date_str,
-                           month_options=month_options)
-
-
-# ---------------------------------------------------------------------------
-# Statement Passwords (legacy route — redirects to settings)
-# ---------------------------------------------------------------------------
-@app.route("/statement-passwords", methods=["GET", "POST"])
-@login_required
-def statement_passwords():
-    username = session["username"]
-
-    if request.method == "POST":
-        bank_name = request.form.get("bank_name", "").strip()
-        password = request.form.get("password", "").strip()
-        if not bank_name or not password:
-            flash("Please fill in both bank name and password.", "danger")
-        else:
-            encrypted = encrypt_bank_pw(password)
-            add_bank_credential(username, bank_name, encrypted)
-            sync_upload_after_change(username)
-            flash(f"Password for '{bank_name}' saved successfully.", "success")
-        return redirect(url_for("statement_passwords"))
-
-    banks = get_all_bank_credentials(username)
-    return render_template(_TPL_SETTINGS, username=username, banks=banks)
-
-
-# ---------------------------------------------------------------------------
-# Delete transaction
-# ---------------------------------------------------------------------------
-@app.route("/api/delete/<int:txn_id>", methods=["POST"])
-@login_required
-def delete_txn(txn_id):
-    username = session["username"]
-    delete_transaction(username, txn_id)
-    sync_upload_after_change(username)
-    return jsonify({"success": True})
-
-
-@app.route("/api/update/<int:txn_id>", methods=["POST"])
-@login_required
-def update_txn(txn_id):
-    username = session["username"]
-    data = request.get_json(silent=True) or {}
-    result = update_transaction(username, txn_id, data)
-    if result:
-        sync_upload_after_change(username)
-    return jsonify({"success": result})
-
-
-# ---------------------------------------------------------------------------
-# Settings & Statement Passwords Manager
-# ---------------------------------------------------------------------------
-@app.route("/settings", methods=["GET"])
-@login_required
-def settings():
-    username = session["username"]
-    banks = get_all_bank_credentials(username)
-    return render_template(_TPL_SETTINGS, username=username, banks=banks)
-
-
-@app.route("/settings/update-bank-password", methods=["POST"])
-@login_required
-def update_bank_password():
-    username = session["username"]
-
-    bank_name = request.form.get("bank_name", "").strip()
-    password = request.form.get("password", "").strip()
-
-    if not bank_name or not password:
-        flash("Please fill in both bank name and password.", "danger")
-    else:
-        encrypted = encrypt_bank_pw(password)
-        add_bank_credential(username, bank_name, encrypted)
-        sync_upload_after_change(username)
-        flash(f"Password for '{bank_name}' saved successfully.", "success")
-
-    return redirect(url_for("settings"))
-
-
-@app.route("/api/bank-password/<int:bank_id>", methods=["POST"])
-@login_required
-def delete_bank_pw(bank_id):
-    username = session["username"]
-    delete_bank_credential(username, bank_id)
-    sync_upload_after_change(username)
-    return jsonify({"success": True})
-
-
-# ---------------------------------------------------------------------------
-# Sync
-# ---------------------------------------------------------------------------
-@app.route("/sync", methods=["GET", "POST"])
-@login_required
-def sync():
-    username = session["username"]
-    result = sync_all(username)
-    category = "success" if result.get("success") else "danger"
-    flash(result.get("message", "Sync completed."), category)
-    return redirect(url_for("dashboard"))
-
-
-# ---------------------------------------------------------------------------
 # API Routes (JSON — mobile-ready)
 # ---------------------------------------------------------------------------
 @app.route("/api/ledger/<date>")
@@ -726,6 +464,46 @@ def api_statement():
 
 
 # ---------------------------------------------------------------------------
+# Add Transaction Manually (from ledger_details page)
+# ---------------------------------------------------------------------------
+@app.route("/api/add-transaction/<date>", methods=["POST"])
+@login_required
+def add_transaction_manual(date):
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    txn_type = data.get("type", "credit")   # "credit" or "debit"
+    name = data.get("name", "").strip()
+    description = data.get("description", "").strip()
+    source_bank = data.get("bank", "").strip()
+    try:
+        amount = float(data.get("amount", 0))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid amount"}), 400
+
+    if amount <= 0:
+        return jsonify({"success": False, "error": "Amount must be greater than 0"}), 400
+
+    if not name:
+        return jsonify({"success": False, "error": "Name is required"}), 400
+
+    debit = amount if txn_type == "debit" else 0.0
+    credit = amount if txn_type == "credit" else 0.0
+
+    insert_transactions_bulk(username, [{
+        "date": date,
+        "name": name,
+        "description": description,
+        "user_description": description,
+        "debit": debit,
+        "credit": credit,
+        "balance": None,
+        "source_bank": source_bank,
+    }], source_bank=source_bank)
+    sync_upload_after_change(username)
+    return jsonify({"success": True})
+
+
+# ---------------------------------------------------------------------------
 # Profile & Account
 # ---------------------------------------------------------------------------
 @app.route("/profile")
@@ -744,7 +522,6 @@ def profile():
     if all_dates:
         latest = all_dates[-1]
         latest_date = latest.get("date", "")
-        # Try fetching balance from summary_by_date for the most recent day
         try:
             day_summary = get_summary_by_date(username, latest_date)
             latest_balance = day_summary.get("balance", total_credit - total_debit)
@@ -811,7 +588,6 @@ def upload_profile_photo():
         os.path.dirname(os.path.abspath(__file__)), "static", "img", "profiles"
     )
     os.makedirs(profile_img_folder, exist_ok=True)
-    # Save as jpg regardless of input ext for simplicity
     save_path = os.path.join(profile_img_folder, f"{username}.jpg")
     file.save(save_path)
     flash("Profile photo updated!", "success")
@@ -873,7 +649,6 @@ def api_chart_data():
 @login_required
 def api_bank_balances():
     username = session["username"]
-    # Auto-rebuild daily_summary if stale, then fetch
     rebuild_daily_summary(username)
     data = get_bank_balances_over_time(username)
     return jsonify(data)
@@ -886,7 +661,6 @@ def debug_bank():
     from backend.database import connect_user_db
     conn = connect_user_db(session["username"])
     cur = conn.cursor()
-    # Sample of transactions with balance info
     cur.execute("""
         SELECT date, source_bank, balance, debit, credit
         FROM transactions
@@ -894,10 +668,8 @@ def debug_bank():
         LIMIT 30
     """)
     txns = [dict(r) for r in cur.fetchall()]
-    # daily_summary
     cur.execute("SELECT * FROM daily_summary ORDER BY date DESC LIMIT 30")
     summary = [dict(r) for r in cur.fetchall()]
-    # counts
     cur.execute("SELECT COUNT(*) as total, SUM(CASE WHEN balance IS NOT NULL THEN 1 ELSE 0 END) as with_balance FROM transactions")
     counts = dict(cur.fetchone())
     conn.close()
@@ -906,6 +678,281 @@ def debug_bank():
         "transactions_sample": txns,
         "daily_summary_sample": summary
     })
+
+
+# ---------------------------------------------------------------------------
+# Export routes
+# ---------------------------------------------------------------------------
+@app.route("/export/date/<date>/<fmt>")
+@login_required
+def export_date_route(date, fmt):
+    username = session["username"]
+    filepath = export_day_ledger(username, date, fmt)
+    return _send_and_cleanup(filepath)
+
+
+@app.route("/export/range/<fmt>")
+@login_required
+def export_range_route(fmt):
+    username = session["username"]
+    start_date = request.args.get("start")
+    end_date = request.args.get("end")
+    if not start_date or not end_date:
+        flash("Please provide both start and end dates.", "danger")
+        return redirect(url_for("dashboard"))
+    filepath = export_range_ledger(username, start_date, end_date, fmt)
+    return _send_and_cleanup(filepath)
+
+
+def _send_and_cleanup(filepath):
+    """Send file as download, then delete the temp export file."""
+    from flask import after_this_request
+
+    @after_this_request
+    def remove_file(response):
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception:
+            pass
+        return response
+
+    return send_file(filepath, as_attachment=True)
+
+
+# ---------------------------------------------------------------------------
+# Get Statement route
+# ---------------------------------------------------------------------------
+def _get_latest_balance_for_statement(username, all_dates):
+    latest_balance = 0.0
+    latest_date_str = ""
+    if all_dates:
+        latest = all_dates[-1]
+        latest_date_str = latest.get("date", "")
+        try:
+            day_summary = get_summary_by_date(username, latest_date_str)
+            latest_balance = day_summary.get("balance", 0.0)
+        except Exception:
+            pass
+    return latest_balance, latest_date_str
+
+
+def _resolve_period_dates(period):
+    from datetime import date, timedelta
+    import calendar as _cal
+    today = date.today()
+    if period == "this_month":
+        return today.replace(day=1).isoformat(), today.isoformat()
+    if period == "last_month":
+        first_this = today.replace(day=1)
+        last_prev = first_this - timedelta(days=1)
+        return last_prev.replace(day=1).isoformat(), last_prev.isoformat()
+    if period == "last_3_months":
+        return (today - timedelta(days=90)).isoformat(), today.isoformat()
+    if period == "last_6_months":
+        return (today - timedelta(days=180)).isoformat(), today.isoformat()
+    if period == "this_year":
+        return today.replace(month=1, day=1).isoformat(), today.isoformat()
+    return None, None
+
+
+def _build_month_options(all_dates):
+    months = sorted({d["date"][:7] for d in all_dates}, reverse=True)
+    return months
+
+
+def _handle_statement_post(username, latest_balance, latest_date_str, month_options):
+    period = request.form.get("period", "")
+    start_date = request.form.get("start_date", "").strip()
+    end_date = request.form.get("end_date", "").strip()
+
+    if period == "month" and request.form.get("month_select"):
+        ym = request.form.get("month_select", "")
+        if ym:
+            start_date = f"{ym}-01"
+            from datetime import date
+            import calendar as _cal
+            y, m = int(ym[:4]), int(ym[5:7])
+            last_day = _cal.monthrange(y, m)[1]
+            end_date = f"{ym}-{last_day:02d}"
+            period = "month"
+        else:
+            flash("Please select a month.", "warning")
+            return render_template(_TPL_STATEMENT, username=username,
+                                   latest_balance=latest_balance, latest_date=latest_date_str,
+                                   month_options=month_options)
+        grouped = group_transactions_for_ledger(
+            get_transactions_by_range(username, start_date, end_date)
+        )
+        return render_template(_TPL_STATEMENT,
+                               username=username, grouped=grouped,
+                               start_date=start_date, end_date=end_date,
+                               period=period, latest_balance=latest_balance,
+                               latest_date=latest_date_str, month_options=month_options)
+
+    if period != "custom":
+        start_date, end_date = _resolve_period_dates(period)
+
+    if not start_date or not end_date:
+        flash("Please select both start and end dates.", "danger")
+        return render_template(_TPL_STATEMENT, username=username,
+                               latest_balance=latest_balance, latest_date=latest_date_str,
+                               month_options=month_options)
+
+    transactions = get_transactions_by_range(username, start_date, end_date)
+    if not transactions:
+        flash("No transactions found for the selected range.", "warning")
+        return render_template(_TPL_STATEMENT, username=username,
+                               latest_balance=latest_balance, latest_date=latest_date_str,
+                               month_options=month_options)
+
+    grouped = group_transactions_for_ledger(transactions)
+    return render_template(
+        _TPL_STATEMENT,
+        username=username, grouped=grouped,
+        start_date=start_date, end_date=end_date,
+        period=period, latest_balance=latest_balance,
+        latest_date=latest_date_str, month_options=month_options,
+    )
+
+
+@app.route("/get-statement", methods=["GET", "POST"])
+@login_required
+def get_statement():
+    username = session["username"]
+
+    all_dates = get_all_dates_summary(username)
+    latest_balance, latest_date_str = _get_latest_balance_for_statement(username, all_dates)
+    month_options = _build_month_options(all_dates)
+
+    if request.method == "POST":
+        return _handle_statement_post(username, latest_balance, latest_date_str, month_options)
+
+    return render_template(_TPL_STATEMENT, username=username,
+                           latest_balance=latest_balance, latest_date=latest_date_str,
+                           month_options=month_options)
+
+
+# ---------------------------------------------------------------------------
+# Statement Passwords (legacy route — redirects to settings)
+# ---------------------------------------------------------------------------
+@app.route("/statement-passwords", methods=["GET", "POST"])
+@login_required
+def statement_passwords():
+    username = session["username"]
+
+    if request.method == "POST":
+        bank_name = request.form.get("bank_name", "").strip()
+        password = request.form.get("password", "").strip()
+        if not bank_name or not password:
+            flash("Please fill in both bank name and password.", "danger")
+        else:
+            encrypted = encrypt_bank_pw(password)
+            add_bank_credential(username, bank_name, encrypted)
+            sync_upload_after_change(username)
+            flash(f"Password for '{bank_name}' saved successfully.", "success")
+        return redirect(url_for("statement_passwords"))
+
+    banks = get_all_bank_credentials(username)
+    return render_template(_TPL_SETTINGS, username=username, banks=banks)
+
+
+# ---------------------------------------------------------------------------
+# Delete / Update transaction
+# ---------------------------------------------------------------------------
+@app.route("/api/delete/<int:txn_id>", methods=["POST"])
+@login_required
+def delete_txn(txn_id):
+    username = session["username"]
+    delete_transaction(username, txn_id)
+    sync_upload_after_change(username)
+    return jsonify({"success": True})
+
+
+@app.route("/api/update/<int:txn_id>", methods=["POST"])
+@login_required
+def update_txn(txn_id):
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    result = update_transaction(username, txn_id, data)
+    if result:
+        sync_upload_after_change(username)
+    return jsonify({"success": result})
+
+
+@app.route("/api/alias", methods=["POST"])
+@login_required
+def save_alias():
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    raw_desc = data.get("raw_description", "").strip()
+    display_name = data.get("display_name", "").strip()
+    txn_id = data.get("txn_id")
+
+    if not raw_desc or not display_name:
+        return jsonify({"success": False, "error": "Missing fields"}), 400
+
+    from backend.database import set_merchant_alias
+    set_merchant_alias(username, raw_desc, display_name)
+
+    # Also update the name on the transaction itself
+    if txn_id:
+        update_transaction(username, int(txn_id), {"name": display_name})
+
+    sync_upload_after_change(username)
+    return jsonify({"success": True})
+
+
+# ---------------------------------------------------------------------------
+# Settings & Statement Passwords Manager
+# ---------------------------------------------------------------------------
+@app.route("/settings", methods=["GET"])
+@login_required
+def settings():
+    username = session["username"]
+    banks = get_all_bank_credentials(username)
+    return render_template(_TPL_SETTINGS, username=username, banks=banks)
+
+
+@app.route("/settings/update-bank-password", methods=["POST"])
+@login_required
+def update_bank_password():
+    username = session["username"]
+
+    bank_name = request.form.get("bank_name", "").strip()
+    password = request.form.get("password", "").strip()
+
+    if not bank_name or not password:
+        flash("Please fill in both bank name and password.", "danger")
+    else:
+        encrypted = encrypt_bank_pw(password)
+        add_bank_credential(username, bank_name, encrypted)
+        sync_upload_after_change(username)
+        flash(f"Password for '{bank_name}' saved successfully.", "success")
+
+    return redirect(url_for("settings"))
+
+
+@app.route("/api/bank-password/<int:bank_id>", methods=["POST"])
+@login_required
+def delete_bank_pw(bank_id):
+    username = session["username"]
+    delete_bank_credential(username, bank_id)
+    sync_upload_after_change(username)
+    return jsonify({"success": True})
+
+
+# ---------------------------------------------------------------------------
+# Sync
+# ---------------------------------------------------------------------------
+@app.route("/sync", methods=["GET", "POST"])
+@login_required
+def sync():
+    username = session["username"]
+    result = sync_all(username)
+    category = "success" if result.get("success") else "danger"
+    flash(result.get("message", "Sync completed."), category)
+    return redirect(url_for("dashboard"))
 
 
 # ---------------------------------------------------------------------------

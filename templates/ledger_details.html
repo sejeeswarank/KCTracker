@@ -225,7 +225,6 @@
         font-size: 0.78rem;
     }
 
-
     /* Date navigation arrows */
     .date-nav-btn {
         display: inline-flex;
@@ -307,16 +306,13 @@
         border-radius: 4px;
         cursor: pointer;
         background-color: #1a6e2e;
-        /* Darker green for high contrast */
         color: #ffffff;
-        /* White text for contrast */
         font-family: inherit;
         white-space: nowrap;
     }
 
     .btn-alias-save:hover {
         background-color: #125120;
-        /* Darker green for hover contrast */
     }
 
     .btn-alias-cancel {
@@ -343,7 +339,6 @@
         display: none;
         margin-top: 1px;
     }
-
 
     /* Action buttons */
     .action-btn {
@@ -429,6 +424,61 @@
         border-radius: 4px;
         cursor: pointer;
         font-size: 0.72rem;
+    }
+
+    /* Add Manually dropdown */
+    .add-manually-wrap {
+        position: relative;
+        display: inline-block;
+    }
+
+    .add-manually-dropdown {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 110%;
+        background: #fff;
+        border: 1.5px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+        z-index: 200;
+        min-width: 170px;
+        overflow: hidden;
+    }
+
+    .add-manually-dropdown.open {
+        display: block;
+    }
+
+    .add-manually-option {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 11px 18px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 13.5px;
+        font-weight: 600;
+        font-family: inherit;
+        transition: background 0.15s;
+    }
+
+    .add-manually-option:hover {
+        background: var(--bg-secondary);
+    }
+
+    .add-manually-option.credit {
+        color: var(--success);
+    }
+
+    .add-manually-option.debit {
+        color: var(--danger);
+    }
+
+    .add-manually-divider {
+        height: 1px;
+        background: var(--border);
     }
 
     @media (max-width: 768px) {
@@ -574,6 +624,41 @@
         </div>
     </div>
 
+    <!-- ── Add Manually Modal ─────────────────────────────────────────── -->
+    <div class="modal-overlay" id="addManuallyModal">
+        <div class="modal-content" style="max-width:420px;">
+            <button class="modal-close" onclick="closeAddModal()">&times;</button>
+            <h3 style="margin-bottom:20px;" id="addModalTitle">Add Credit</h3>
+            <input type="hidden" id="addModalType" value="credit">
+            <div class="form-group">
+                <label for="addModalBank">Bank</label>
+                <select class="form-control" id="addModalBank">
+                    <option value="">— None / Unknown —</option>
+                    {% for bank in bank_names %}
+                    <option value="{{ bank }}">{{ bank }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="addModalName">Name</label>
+                <input type="text" class="form-control" id="addModalName" placeholder="e.g. Salary, Rent...">
+            </div>
+            <div class="form-group">
+                <label for="addModalDesc">Description</label>
+                <input type="text" class="form-control" id="addModalDesc" placeholder="Optional note">
+            </div>
+            <div class="form-group">
+                <label for="addModalAmount">Amount</label>
+                <input type="number" class="form-control" id="addModalAmount" placeholder="0.00" min="0" step="0.01">
+            </div>
+            <div class="btn-group" style="justify-content:flex-end; margin-top:8px;">
+                <button class="btn btn-secondary" onclick="closeAddModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitAddManually()">Save</button>
+            </div>
+            <div id="addModalError" style="color:var(--danger);font-size:12.5px;margin-top:8px;display:none;"></div>
+        </div>
+    </div>
+
     <main class="main-content">
         <div class="page-header"
             style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
@@ -596,13 +681,29 @@
             </div>
 
             <div class="page-body">
-                <div class="btn-group">
-                    <a href="{{ url_for('export_date_route', date=date, fmt='pdf') }}" class="btn btn-secondary btn-sm"
-                        id="exportPdf">PDF</a>
-                    <a href="{{ url_for('export_date_route', date=date, fmt='excel') }}"
+                <div class="btn-group" style="align-items:center; gap:8px;">
+                    <a href="{{ url_for('export_date_route', date=iso_date, fmt='pdf') }}"
+                        class="btn btn-secondary btn-sm" id="exportPdf">PDF</a>
+                    <a href="{{ url_for('export_date_route', date=iso_date, fmt='excel') }}"
                         class="btn btn-secondary btn-sm" id="exportExcel">Excel</a>
-                    <a href="{{ url_for('export_date_route', date=date, fmt='txt') }}" class="btn btn-secondary btn-sm"
-                        id="exportTxt">TXT</a>
+                    <a href="{{ url_for('export_date_route', date=iso_date, fmt='txt') }}"
+                        class="btn btn-secondary btn-sm" id="exportTxt">TXT</a>
+
+                    <!-- Add Manually dropdown -->
+                    <div class="add-manually-wrap" id="addManuallyWrap">
+                        <button class="btn btn-primary btn-sm" onclick="toggleAddManually(event)">
+                            + Add Manually ▾
+                        </button>
+                        <div class="add-manually-dropdown" id="addManuallyDropdown">
+                            <button class="add-manually-option credit" onclick="openAddModal('credit')">
+                                ＋ Credit
+                            </button>
+                            <div class="add-manually-divider"></div>
+                            <button class="add-manually-option debit" onclick="openAddModal('debit')">
+                                − Debit
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -788,6 +889,11 @@
         if (wrap && !wrap.contains(e.target)) {
             document.getElementById('profileMenu').classList.remove('show');
             document.getElementById('profileBtn').setAttribute('aria-expanded', 'false');
+        }
+        // Close Add Manually dropdown if clicking outside
+        const addWrap = document.getElementById('addManuallyWrap');
+        if (addWrap && !addWrap.contains(e.target)) {
+            document.getElementById('addManuallyDropdown').classList.remove('open');
         }
     });
 
@@ -990,5 +1096,67 @@
             if (tempForm) tempForm.classList.remove('active');
         }
     });
+
+    // ── Add Manually ──────────────────────────────────────────────────────
+    function toggleAddManually(e) {
+        e.stopPropagation();
+        const dd = document.getElementById('addManuallyDropdown');
+        dd.classList.toggle('open');
+    }
+
+    function openAddModal(type) {
+        document.getElementById('addManuallyDropdown').classList.remove('open');
+        document.getElementById('addModalType').value = type;
+        document.getElementById('addModalTitle').textContent = type === 'credit' ? '＋ Add Credit' : '− Add Debit';
+        document.getElementById('addModalName').value = '';
+        document.getElementById('addModalDesc').value = '';
+        document.getElementById('addModalAmount').value = '';
+        document.getElementById('addModalBank').value = '';
+        document.getElementById('addModalError').style.display = 'none';
+        document.getElementById('addManuallyModal').classList.add('show');
+    }
+
+    function closeAddModal() {
+        document.getElementById('addManuallyModal').classList.remove('show');
+    }
+
+    function submitAddManually() {
+        const type = document.getElementById('addModalType').value;
+        const name = document.getElementById('addModalName').value.trim();
+        const desc = document.getElementById('addModalDesc').value.trim();
+        const bank = document.getElementById('addModalBank').value;
+        const amount = Number.parseFloat(document.getElementById('addModalAmount').value);
+        const errEl = document.getElementById('addModalError');
+
+        if (!name) {
+            errEl.textContent = 'Name is required.';
+            errEl.style.display = 'block';
+            return;
+        }
+        if (!amount || amount <= 0) {
+            errEl.textContent = 'Enter a valid amount greater than 0.';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        fetch('/api/add-transaction/{{ iso_date }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: type, name: name, description: desc, bank: bank, amount: amount })
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    errEl.textContent = data.error || 'Failed to save transaction.';
+                    errEl.style.display = 'block';
+                }
+            })
+            .catch(function () {
+                errEl.textContent = 'Network error. Please try again.';
+                errEl.style.display = 'block';
+            });
+    }
 </script>
 {% endblock %}
