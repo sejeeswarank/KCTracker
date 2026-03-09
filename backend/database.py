@@ -1,24 +1,20 @@
 """
-User Database module — manages per-user ledger databases (username.db).
-
-Each user gets their own SQLite file in data/users/.
-Tables: transactions, daily_summary, statement_source,
-        merchant_alias, bank_credentials, metadata
+Database module — SQLite CRUD operations for user-specific ledger databases.
+Each user has their own isolated database at data/users/<username>.db
 """
 
-import sqlite3
 import os
 import re
+import sqlite3
 from datetime import datetime
 from config import USERS_DB_FOLDER
 
-CREATE_INDEX_DATE_SQL = "CREATE INDEX IF NOT EXISTS idx_date ON transactions(date)"
+CREATE_INDEX_DATE_SQL = """
+    CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)
+"""
 
-# ---------------------------------------------------------------------------
-# Connection
-# ---------------------------------------------------------------------------
+
 def connect_user_db(username):
-    """Get a connection to a user's ledger database."""
     db_path = os.path.join(USERS_DB_FOLDER, username + ".db")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -246,21 +242,79 @@ def _normalize_date(date_str):
     return s
 
 
+def _make_txn_fingerprint(iso_date, description, debit, credit, balance, bank):
+    """
+    Build a hashable deduplication key for a transaction.
+    Uses a sentinel string for NULL balance so that two NULL-balance rows
+    with identical other fields are correctly identified as duplicates.
+    SQLite's UNIQUE constraint cannot do this because NULL != NULL in SQL.
+    """
+    bal_key = "__NULL__" if balance is None else round(float(balance), 6)
+    return (
+        iso_date,
+        (description or "").strip(),
+        round(float(debit), 6),
+        round(float(credit), 6),
+        bal_key,
+        (bank or "").strip(),
+    )
+
+
 def insert_transactions_bulk(username, transactions, source_bank=""):
     """
     Insert multiple transactions at once (INSERT OR IGNORE).
     - Normalizes all dates to ISO (YYYY-MM-DD)
     - Stores source_bank to track which bank each transaction came from
     - Auto-updates daily_summary for affected dates
+    - Deduplicates in Python before inserting so NULL-balance rows are not
+      double-inserted (SQLite UNIQUE treats NULL != NULL, so two rows with
+      balance=NULL and identical other fields would both pass INSERT OR IGNORE).
     """
     conn = connect_user_db(username)
     cursor = conn.cursor()
     created_at = datetime.now().isoformat()
     affected_dates = set()
 
+    # ── Load existing fingerprints for affected dates ──────────────────────
+    # We load them lazily per date as we encounter new dates.
+    existing_fingerprints: set = set()
+    loaded_dates: set = set()
+
+    def _load_existing(iso_date):
+        if iso_date in loaded_dates:
+            return
+        loaded_dates.add(iso_date)
+        cursor.execute(
+            "SELECT description, debit, credit, balance, source_bank FROM transactions WHERE date = ?",
+            (iso_date,)
+        )
+        for row in cursor.fetchall():
+            fp = _make_txn_fingerprint(
+                iso_date,
+                row[0], row[1], row[2], row[3], row[4]
+            )
+            existing_fingerprints.add(fp)
+
     for txn in transactions:
         iso_date = _normalize_date(str(txn["date"]))
         affected_dates.add(iso_date)
+
+        _load_existing(iso_date)
+
+        bank = source_bank or txn.get("source_bank", "")
+        debit  = float(txn.get("debit", 0))
+        credit = float(txn.get("credit", 0))
+        balance = float(txn["balance"]) if txn.get("balance") is not None else None
+        description = txn.get("description", "")
+
+        fp = _make_txn_fingerprint(iso_date, description, debit, credit, balance, bank)
+
+        # Skip if already exists (in DB or already seen in this batch)
+        if fp in existing_fingerprints:
+            continue
+
+        existing_fingerprints.add(fp)  # mark so batch duplicates are also caught
+
         cursor.execute(
             """INSERT OR IGNORE INTO transactions
                (date, name, description, user_description, debit, credit, balance, source_bank, created_at)
@@ -268,15 +322,16 @@ def insert_transactions_bulk(username, transactions, source_bank=""):
             (
                 iso_date,
                 txn.get("name", ""),
-                txn.get("description", ""),
+                description,
                 txn.get("user_description", ""),
-                float(txn.get("debit", 0)),
-                float(txn.get("credit", 0)),
-                float(txn["balance"]) if txn.get("balance") is not None else None,
-                source_bank,
+                debit,
+                credit,
+                balance,
+                bank,
                 created_at,
             ),
         )
+
     conn.commit()
 
     for d in affected_dates:
@@ -476,7 +531,7 @@ def get_all_dates_summary(username):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT date,
-               COALESCE(SUM(debit), 0) as total_debit,
+               COALESCE(SUM(debit), 0)  as total_debit,
                COALESCE(SUM(credit), 0) as total_credit
         FROM transactions
         GROUP BY date
@@ -487,166 +542,40 @@ def get_all_dates_summary(username):
     return rows
 
 
-# ---------------------------------------------------------------------------
-# Merchant Alias CRUD (Auto-learning name system)
-# ---------------------------------------------------------------------------
-def rebuild_daily_summary(username):
-    """
-    Recompute and upsert daily_summary for ALL dates in transactions.
-    Call this if daily_summary is out of sync or empty.
-    """
+def get_all_merchant_aliases(username):
+    """Get all merchant aliases for the user."""
     conn = connect_user_db(username)
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT date FROM transactions ORDER BY date ASC")
-    dates = [row[0] for row in cursor.fetchall()]
-    for d in dates:
-        _update_daily_summary(cursor, d)
-    conn.commit()
+    cursor.execute("SELECT raw_text, display_name FROM merchant_alias")
+    rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
-
-
-def get_bank_balances_over_time(username):
-    """
-    Return per-bank closing balance for every date that has transactions.
-    Result: [ {date, bank, balance}, ... ] ordered by date ASC.
-
-    Tries 3 strategies in order:
-    1. transactions.balance per bank (ideal — real parsed closing balances)
-       FIX: removed `AND balance != 0` — zero is a valid closing balance.
-    2. daily_summary.closing_balance (single "Account" line)
-    3. Computed running balance from cumulative debit/credit per date
-    """
-    conn = connect_user_db(username)
-    cursor = conn.cursor()
-
-    # ── Strategy 1: real balance column per transaction ──────────────────────
-    # NOTE: Only filter NULL — do NOT filter balance = 0 (zero is a valid balance)
-    try:
-        cursor.execute("""
-            SELECT date,
-                   COALESCE(NULLIF(TRIM(source_bank),''), 'Unknown') as bank,
-                   balance
-            FROM transactions
-            WHERE balance IS NOT NULL
-            ORDER BY date ASC, id ASC
-        """)
-        rows = cursor.fetchall()
-    except Exception:
-        rows = []
-
-    if rows:
-        conn.close()
-        # Keep only the LAST balance per (date, bank) combination
-        seen = {}
-        for row in rows:
-            key = (row[0], row[1])
-            seen[key] = float(row[2])
-        result = [{"date": k[0], "bank": k[1], "balance": v} for k, v in seen.items()]
-        result.sort(key=lambda x: x["date"])
-        return result
-
-    # ── Strategy 2: daily_summary.closing_balance ─────────────────────────────
-    try:
-        cursor.execute("""
-            SELECT date, closing_balance
-            FROM daily_summary
-            WHERE closing_balance IS NOT NULL
-            ORDER BY date ASC
-        """)
-        summary_rows = cursor.fetchall()
-    except Exception:
-        summary_rows = []
-
-    if summary_rows:
-        conn.close()
-        return [{"date": r[0], "bank": "Account", "balance": float(r[1])}
-                for r in summary_rows]
-
-    # ── Strategy 3: compute cumulative running balance from debit/credit ──────
-    try:
-        cursor.execute("""
-            SELECT date,
-                   COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) as net
-            FROM transactions
-            GROUP BY date
-            ORDER BY date ASC
-        """)
-        net_rows = cursor.fetchall()
-    except Exception:
-        net_rows = []
-
-    conn.close()
-
-    if not net_rows:
-        return []
-
-    # Build cumulative running balance across all dates
-    running = 0.0
-    result = []
-    for row in net_rows:
-        running += float(row[1])
-        result.append({"date": row[0], "bank": "Account", "balance": running})
-    return result
-
-
-def get_merchant_alias(username, raw_text):
-    """Look up the display name for a raw description."""
-    conn = connect_user_db(username)
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT display_name FROM merchant_alias WHERE raw_text = ?", (raw_text,)
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return row["display_name"] if row else None
+    return rows
 
 
 def set_merchant_alias(username, raw_text, display_name):
     """Insert or update a merchant alias."""
     conn = connect_user_db(username)
     cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO merchant_alias (raw_text, display_name) VALUES (?, ?)",
-            (raw_text, display_name),
-        )
-    except sqlite3.IntegrityError:
-        cursor.execute(
-            "UPDATE merchant_alias SET display_name = ? WHERE raw_text = ?",
-            (display_name, raw_text),
-        )
+    cursor.execute("""
+        INSERT INTO merchant_alias (raw_text, display_name)
+        VALUES (?, ?)
+        ON CONFLICT(raw_text) DO UPDATE SET display_name = excluded.display_name
+    """, (raw_text, display_name))
     conn.commit()
     conn.close()
 
 
-def get_all_merchant_aliases(username):
-    """Get all merchant aliases for this user."""
-    conn = connect_user_db(username)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM merchant_alias ORDER BY raw_text ASC")
-    rows = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# Bank Credentials CRUD (Encrypted statement passwords)
-# ---------------------------------------------------------------------------
 def add_bank_credential(username, bank_name, encrypted_password):
-    """Add or update a bank credential (encrypted)."""
+    """Add or update a bank credential."""
     conn = connect_user_db(username)
     cursor = conn.cursor()
-    updated_at = datetime.now().isoformat()
-    try:
-        cursor.execute(
-            "INSERT INTO bank_credentials (bank_name, encrypted_password, updated_at) VALUES (?, ?, ?)",
-            (bank_name, encrypted_password, updated_at),
-        )
-    except sqlite3.IntegrityError:
-        cursor.execute(
-            "UPDATE bank_credentials SET encrypted_password = ?, updated_at = ? WHERE bank_name = ?",
-            (encrypted_password, updated_at, bank_name),
-        )
+    cursor.execute("""
+        INSERT INTO bank_credentials (bank_name, encrypted_password, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(bank_name) DO UPDATE SET
+            encrypted_password = excluded.encrypted_password,
+            updated_at = excluded.updated_at
+    """, (bank_name, encrypted_password, datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
@@ -657,7 +586,7 @@ def get_bank_credential(username, bank_name):
     cursor = conn.cursor()
     cursor.execute(
         "SELECT encrypted_password FROM bank_credentials WHERE bank_name = ?",
-        (bank_name,),
+        (bank_name,)
     )
     row = cursor.fetchone()
     conn.close()
@@ -665,44 +594,51 @@ def get_bank_credential(username, bank_name):
 
 
 def get_all_bank_credentials(username):
-    """Get all bank credentials (encrypted) for this user."""
+    """Get all saved bank credentials."""
     conn = connect_user_db(username)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM bank_credentials ORDER BY bank_name ASC")
+    cursor.execute("SELECT id, bank_name, updated_at FROM bank_credentials ORDER BY bank_name")
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return rows
 
 
-def delete_bank_credential(username, bank_id):
+def delete_bank_credential(username, credential_id):
     """Delete a bank credential by ID."""
     conn = connect_user_db(username)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM bank_credentials WHERE id = ?", (bank_id,))
+    cursor.execute("DELETE FROM bank_credentials WHERE id = ?", (credential_id,))
     conn.commit()
     conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Metadata CRUD (key-value store)
-# ---------------------------------------------------------------------------
-def get_metadata(username, key):
-    """Get a metadata value by key."""
+def rebuild_daily_summary(username):
+    """Rebuild all daily_summary rows from scratch."""
     conn = connect_user_db(username)
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM metadata WHERE key = ?", (key,))
-    row = cursor.fetchone()
-    conn.close()
-    return row["value"] if row else None
-
-
-def set_metadata(username, key, value):
-    """Set a metadata value (insert or replace)."""
-    conn = connect_user_db(username)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
-        (key, value),
-    )
+    cursor.execute("SELECT DISTINCT date FROM transactions")
+    dates = [row[0] for row in cursor.fetchall()]
+    for d in dates:
+        _update_daily_summary(cursor, d)
     conn.commit()
     conn.close()
+
+
+def get_bank_balances_over_time(username):
+    """
+    Return per-bank balance history for charting.
+    Each entry: {date, bank, balance}
+    """
+    conn = connect_user_db(username)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT date,
+               COALESCE(source_bank, 'Unknown') as bank,
+               balance
+        FROM transactions
+        WHERE balance IS NOT NULL
+        ORDER BY date ASC, id ASC
+    """)
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
