@@ -5,21 +5,26 @@ KC Tracker is a complete bank statement parsing and ledger management system des
 ## 🚀 Features
 
 *   **Multi-format Parsing:** Supports uploading PDF (native and scanned-text PDF fallback), CSV, and Excel (XLSX/XLS) bank statements.
-*   **Intelligent PDF Engine:**
-    *   HDFC-specific fast-text parsing logic.
-    *   Generic Table extraction via `pdfplumber` with fallback to layout-aware text extraction.
-    *   Auto-detects format (Single Column, Dual Column, packed descriptions, etc.).
+*   **Intelligent Universal PDF Engine:**
+    *   Auto-detects banks from PDF content using multi-signal confidence scoring (keywords, column fingerprints, footers).
+    *   Supports 25+ major Indian banks out of the box including: HDFC, ICICI, SBI, Axis, Kotak, Bank of Baroda, PNB, YES, IndusInd, IOB, Canara, Federal, Indian Bank, and many more.
+    *   Generic fallback parser for unknown banks.
+    *   Table extraction via `pdfplumber` with fallback to layout-aware text extraction.
 *   **Data Normalization Pipeline:**
     *   Garbage filters for empty/useless rows.
     *   Auto column mapping (`date`, `description`, `debit`, `credit`, `balance`).
     *   Balance validation and Debit/Credit correction.
     *   Automatic merchant name cleaning and learning (Alias mapping).
-*   **Local Secure Password Management:** Bank statement passwords are encrypted using Fernet (symmetric encryption) and stored strictly locally to open protected PDFs.
-*   **Google Drive Sync:** Bidirectional synchronization of user data databases (`users/<username>.db`) and the main auth database (`auth.db`) with Google Drive via the official API.
-*   **Dynamic Ledger Dashboard:**
-    *   Interactive FullCalendar showing daily balances (Green for positive, Red for negative).
+*   **Per-Bank Balance Tracking:** Automatically segregates and tracks closing balances for each bank independently, displaying them side-by-side in daily views.
+*   **Local Secure Password Management:** Bank statement passwords are encrypted using Fernet (symmetric encryption) and stored strictly locally to open protected PDFs. Fully offline parsing ensures privacy.
+*   **Google Drive Sync:** Bidirectional synchronization of user data databases (`users/<username>.db`) and the main auth database (`auth.db`) with Google Drive via the official API for seamless backups.
+*   **Dynamic Ledger Dashboard & Analytics:**
+    *   Interactive FullCalendar showing daily balances.
+    *   Visual Analytics charts tracking income, expenses, and balances over time.
     *   Daily Summary and Detailed Ledger views.
-    *   Filter statements by date ranges.
+    *   Filter statements by dynamic periods (This Month, Current FY, etc.) or custom date ranges.
+    *   Ability to manually add missing or cash transactions.
+*   **User Profiles:** Manage account details, upload profile pictures, track global account statistics, and change passwords.
 *   **Exporting:** Export daily or range-wise ledgers cleanly to **PDF**, **Excel**, and **Plain Text (TXT)**.
 
 ---
@@ -30,7 +35,7 @@ KC Tracker is a complete bank statement parsing and ledger management system des
 1.  **Upload:** User selects a file (PDF/CSV/Excel) and optionally selects a pre-saved Bank Name to provide the decryption password.
 2.  **Parser Engine (`backend/parser.py`):**
     *   Auto-detects the file type.
-    *   Decripts the file if necessary using the locally stored password.
+    *   Decrypts the file if necessary using the locally stored password.
     *   Extracts raw rows.
     *   Puts rows through a 10-phase normalization pipeline (Segmentation, Garbage Filter, Column Mapping, DR/CR Classification, Merchant Extraction, Balance Correction).
 3.  **Preview:** Processed transactions are shown to the user in a grouped UI (`preview.html`).
@@ -79,11 +84,14 @@ KC Tracker/
 │   ├── row_segmenter.py        # Combines multi-line transactions in dirty PDFs
 │   ├── security.py             # Fernet encryption/decryption for bank passwords
 │   ├── sync_manager.py         # Google Drive Backup/Restore API logic
-│   └── sync.py                 # Helper runner for sync functions
+│   ├── sync.py                 # Helper runner for sync functions
+│   └── universal_bank_parser.py# Multi-bank auto-detect parsing engine (25+ banks)
 │
 ├── templates/                  # Frontend HTML (Jinja2) templates
 │   ├── base.html               # Master layout with Bootstrap & Sidebar
 │   ├── dashboard.html          # FullCalendar view
+│   ├── analytics.html          # Dashboard charts for income/expenses/balances
+│   ├── profile.html            # User settings, password changes, account stats
 │   ├── login.html / register.html
 │   ├── upload.html             # Drag-and-drop file upload UI
 │   ├── preview.html            # Pre-save validation screen
@@ -141,3 +149,37 @@ python app.py
 *   The first time the app runs, it will open a browser window asking you to authenticate with Google.
 *   Once authorized, it creates `token.pickle`.
 *   The application will be accessible at `http://127.0.0.1:5000/`.
+
+---
+
+## 💻 Tech Stack
+
+- **Backend:** Python 3, Flask, SQLite3
+- **Data Processing:** pandas, pdfplumber, PyPDF2
+- **Frontend:** HTML5, CSS3, Bootstrap 5, FullCalendar, Chart.js
+- **Security:** cryptography (Fernet encryption), bcrypt
+- **Cloud Integration:** Google Drive API
+
+---
+
+## 📸 Screenshots
+
+*(Add screenshots of your application here to showcase the dashboard, ledger, and visualizations)*
+
+---
+
+## 🤝 Contributing
+
+Contributions, issues, and feature requests are welcome! 
+
+1. Fork the project.
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4. Push to the branch (`git push origin feature/AmazingFeature`).
+5. Open a Pull Request.
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
