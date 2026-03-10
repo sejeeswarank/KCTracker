@@ -583,6 +583,12 @@ def _normalize_pipeline(df, format_info=None):
         if col in df.columns:
             df = df.drop(columns=[col])
 
+    # Add stmt_order = original row position in the PDF (0-based)
+    # This is the ground truth for finding closing balance regardless of bank print order
+    df = df.reset_index(drop=True)
+    df["stmt_order"] = df.index
+    output_cols.append("stmt_order")
+
     return df[output_cols].to_dict(orient="records")
 
 
@@ -674,15 +680,76 @@ def _preprocess_ledger_df(transactions):
             
     return df
 
+def _get_true_closing_balance_df(group):
+    """
+    Find true end-of-day closing balance from a DataFrame group.
+
+    Strategy 1 — stmt_order (best, always correct):
+      stmt_order = original row position in the PDF statement.
+      Last row by stmt_order = last transaction of the day = closing balance.
+      Works for ALL banks: IOB (newest-first), HDFC (oldest-first), any future bank.
+
+    Strategy 2 — balance-delta math (fallback for old data without stmt_order):
+      Try ASC and DESC row order, pick whichever satisfies
+      balance[i] = balance[i-1] - debit[i] + credit[i] more consistently.
+      Last row in the correct order = closing balance.
+    """
+    if "balance" not in group.columns:
+        return 0.0
+
+    # Strategy 1: stmt_order present
+    if "stmt_order" in group.columns and group["stmt_order"].notna().any():
+        ordered = group.sort_values("stmt_order")
+        last_bal = ordered.iloc[-1]["balance"]
+        if pd.notna(last_bal) and last_bal != 0:
+            return float(last_bal)
+
+    # Strategy 2: balance-delta math
+    bal = group["balance"].values
+    dr  = group["debit"].values  if "debit"  in group.columns else [0] * len(group)
+    cr  = group["credit"].values if "credit" in group.columns else [0] * len(group)
+
+    def count_consistent(b, d, c):
+        score = 0
+        for i in range(1, len(b)):
+            if abs(round(b[i-1] - d[i] + c[i], 2) - round(b[i], 2)) < 1.0:
+                score += 1
+        return score
+
+    asc_score  = count_consistent(bal, dr, cr)
+    desc_score = count_consistent(bal[::-1], dr[::-1], cr[::-1])
+
+    return float(bal[0]) if desc_score > asc_score else float(bal[-1])
+
+
 def _extract_bank_balances(group):
-    # Per-bank closing balances (for multi-bank display)
+    """
+    Per-bank closing balances.
+    Uses stmt_order as ground truth when available, falls back to math.
+    Works universally for all banks regardless of PDF print order.
+    """
     bank_balances = {}
-    if "source_bank" in group.columns and "balance" in group.columns:
-        for _, row in group.iterrows():
-            if pd.notna(row.get("balance")) and row["balance"] != 0:
-                bank = str(row.get("source_bank", "")).strip() or "Unknown"
-                bank_balances[bank] = float(row["balance"])
+    if "balance" not in group.columns:
+        return bank_balances
+
+    has_source_bank = "source_bank" in group.columns
+    if not has_source_bank:
+        closing = _get_true_closing_balance_df(group)
+        if closing:
+            bank_balances["Unknown"] = closing
+        return bank_balances
+
+    banks = group["source_bank"].fillna("").apply(lambda x: str(x).strip() or "Unknown")
+    for bank in banks.unique():
+        bank_group = group[banks == bank]
+        if bank_group.empty:
+            continue
+        closing = _get_true_closing_balance_df(bank_group)
+        if closing:
+            bank_balances[bank] = closing
+
     return bank_balances
+
 
 def _make_ledger_records(df_, amount_col):
     records = []
@@ -690,10 +757,11 @@ def _make_ledger_records(df_, amount_col):
         records.append({
             "S.No":        int(row["S.No"]),
             "name":        str(row.get("name", "")),
-            "description": str(row.get("user_description", "")),  # clean desc like ledger_details
+            "description": str(row.get("user_description", "")),
             amount_col:    float(row[amount_col]),
         })
     return records
+
 
 def _process_ledger_group(date, group):
     debit_df = group[group["debit"] > 0].copy()
@@ -702,8 +770,8 @@ def _process_ledger_group(date, group):
     debit_df["S.No"] = range(1, len(debit_df) + 1)
     credit_df["S.No"] = range(1, len(credit_df) + 1)
 
-    closing_bal = group.iloc[-1]["balance"] if "balance" in group.columns else 0
     bank_balances = _extract_bank_balances(group)
+    closing_bal   = sum(bank_balances.values()) if bank_balances else _get_true_closing_balance_df(group)
 
     return {
         "date":            str(date),

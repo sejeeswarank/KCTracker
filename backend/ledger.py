@@ -7,7 +7,7 @@ Export functions are in backend/exporter.py.
 from backend.database import get_transactions_by_date, _get_per_bank_balances, connect_user_db
 
 
-def _build_ledger_lists(rows):
+def _extract_ledger_transactions(rows):
     debit_list, credit_list = [], []
     total_debit, total_credit = 0.0, 0.0
     debit_sno, credit_sno = 1, 1
@@ -40,24 +40,46 @@ def _build_ledger_lists(rows):
 
     return debit_list, credit_list, total_debit, total_credit
 
+def _score_sequence_consistency(seq):
+    s = 0
+    for i in range(1, len(seq)):
+        exp = round(seq[i-1]["balance"] - seq[i]["debit"] + seq[i]["credit"], 2)
+        if abs(exp - round(seq[i]["balance"], 2)) < 1.0:
+            s += 1
+    return s
 
-def _calculate_closing_balance(rows, total_debit, total_credit):
+def _calculate_bank_closing_balance(brows):
+    with_order = [r for r in brows if r.get("stmt_order") is not None]
+    if with_order:
+        last = max(with_order, key=lambda r: r["stmt_order"])
+        return float(last["balance"])
+
+    if len(brows) == 1:
+        return float(brows[0]["balance"])
+
+    asc = _score_sequence_consistency(brows)
+    desc = _score_sequence_consistency(list(reversed(brows)))
+    return float(brows[0]["balance"] if desc > asc else brows[-1]["balance"])
+
+def _calculate_total_closing_balance(rows, total_credit, total_debit):
     if not rows:
         return 0.0
 
-    bank_max = {}
+    bank_rows = {}
     for row in rows:
         if row.get("balance") is None:
             continue
         bank = (row.get("source_bank") or "").strip() or "Unknown"
-        row_id = row.get("id", 0)
-        if bank not in bank_max or row_id > bank_max[bank][0]:
-            bank_max[bank] = (row_id, float(row["balance"]))
+        bank_rows.setdefault(bank, []).append(row)
 
-    if bank_max:
-        return sum(v[1] for v in bank_max.values())
-    return total_credit - total_debit
+    if not bank_rows:
+        return total_credit - total_debit
 
+    closing_balance = 0.0
+    for brows in bank_rows.values():
+        closing_balance += _calculate_bank_closing_balance(brows)
+
+    return closing_balance
 
 def generate_ledger(username, selected_date):
     """
@@ -67,8 +89,8 @@ def generate_ledger(username, selected_date):
     """
     rows = get_transactions_by_date(username, selected_date)
 
-    debit_list, credit_list, total_debit, total_credit = _build_ledger_lists(rows)
-    closing_balance = _calculate_closing_balance(rows, total_debit, total_credit)
+    debit_list, credit_list, total_debit, total_credit = _extract_ledger_transactions(rows)
+    closing_balance = _calculate_total_closing_balance(rows, total_credit, total_debit)
 
     # bank_balances = display split only (empty = show single balance bar)
     conn   = connect_user_db(username)

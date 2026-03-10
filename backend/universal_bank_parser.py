@@ -556,7 +556,7 @@ def _parse_via_tables(pdf, bank_code):
             if table and len(table) >= 2:
                 _process_table(table, date_formats, results)
 
-    return results
+    return _detect_and_normalize_direction(results)
 
 
 _COL_ALIASES = {
@@ -889,10 +889,15 @@ def _calculate_txn_amounts(txn, prev_bal, i, use_explicit):
 def _compute_amounts(raw_txns):
     """
     Derive debit/credit amounts.
+    First normalizes statement direction so rows are always oldest-first.
     Uses explicit column values if detected (IOB style), otherwise balance delta.
     """
     if not raw_txns:
         return []
+
+    # Normalize to chronological order (oldest first) before any processing.
+    # This ensures stmt_order assigned in parser.py is always oldest=0, newest=last.
+    raw_txns = _detect_and_normalize_direction(raw_txns)
 
     explicit_count = sum(
         1 for t in raw_txns
@@ -915,6 +920,57 @@ def _compute_amounts(raw_txns):
         })
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Statement direction detection + normalization
+# ---------------------------------------------------------------------------
+def _detect_and_normalize_direction(txns):
+    """
+    Detect whether a statement is newest-first (descending) or oldest-first
+    (ascending) by checking the date order of the parsed transactions.
+
+    Uses the actual DATE values — not balance math — so it works even if
+    balance values are wrong or missing. Date order is always reliable since
+    it comes directly from the PDF cells.
+
+    Logic:
+      - Count how many consecutive date pairs are ascending (d[i] <= d[i+1])
+        vs descending (d[i] >= d[i+1]).
+      - If majority are descending → newest-first → REVERSE so oldest comes first.
+      - If majority are ascending (or equal) → already chronological → no change.
+
+    After normalization, row index 0 = oldest transaction, last row = closing balance.
+    This is the ground truth that stmt_order is built on in parser.py.
+    """
+    if len(txns) < 2:
+        return txns
+
+    from datetime import datetime
+
+    def _parse_date(d):
+        for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(d, fmt)
+            except ValueError:
+                continue
+        return None
+
+    dates = [_parse_date(t.get("date", "")) for t in txns]
+    valid_pairs = [(dates[i], dates[i+1]) for i in range(len(dates)-1)
+                   if dates[i] and dates[i+1]]
+
+    if not valid_pairs:
+        return txns
+
+    asc_count  = sum(1 for a, b in valid_pairs if a <= b)
+    desc_count = sum(1 for a, b in valid_pairs if a >= b)
+
+    if desc_count > asc_count:
+        print(f"[UniversalParser] Statement is newest-first — reversing to chronological order")
+        return list(reversed(txns))
+
+    return txns  # already chronological
 
 
 # ---------------------------------------------------------------------------

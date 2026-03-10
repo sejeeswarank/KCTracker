@@ -26,7 +26,38 @@ def _group_rows_by_date(rows):
         date_groups[d].append(row)
     return date_groups
 
-def _process_date_group(date, group_rows):
+def _score_balance_sequence(seq):
+    s = 0
+    for i in range(1, len(seq)):
+        exp = round(seq[i-1]["balance"] - seq[i]["debit"] + seq[i]["credit"], 2)
+        if abs(exp - round(seq[i]["balance"], 2)) < 1.0:
+            s += 1
+    return s
+
+def _get_bank_closing_balance(brows):
+    with_order = [r for r in brows if r.get("stmt_order") is not None]
+    if with_order:
+        return float(max(with_order, key=lambda r: r["stmt_order"])["balance"])
+    if len(brows) == 1:
+        return float(brows[0]["balance"])
+    asc = _score_balance_sequence(brows)
+    desc = _score_balance_sequence(list(reversed(brows)))
+    return float(brows[0]["balance"] if desc > asc else brows[-1]["balance"])
+
+def _calculate_bank_balances(group_rows):
+    bank_rows = {}
+    for row in group_rows:
+        if row.get("balance") is None:
+            continue
+        bank = (row.get("source_bank") or "").strip() or "Unknown"
+        bank_rows.setdefault(bank, []).append(row)
+
+    bank_last = {}
+    for bank, brows in bank_rows.items():
+        bank_last[bank] = _get_bank_closing_balance(brows)
+    return bank_last
+
+def _extract_transactions(group_rows):
     debit_list, credit_list = [], []
     total_debit = total_credit = 0.0
     debit_sno = credit_sno = 1
@@ -41,18 +72,12 @@ def _process_date_group(date, group_rows):
                                 "description": row["description"], "amount": row["credit"]})
             total_credit += row["credit"]
             credit_sno += 1
-    # Per-bank closing balances — use MAX(id) per bank, not last row in list
-    bank_max = {}  # bank -> (max_id, balance)
-    for row in group_rows:
-        if row.get("balance") is None:
-            continue
-        bank = (row.get("source_bank") or "").strip() or "Unknown"
-        row_id = row.get("id", 0)
-        if bank not in bank_max or row_id > bank_max[bank][0]:
-            bank_max[bank] = (row_id, float(row["balance"]))
+    return debit_list, credit_list, total_debit, total_credit
 
-    bank_last = {bank: v[1] for bank, v in bank_max.items()}
-    closing_balance = sum(v[1] for v in bank_max.values()) if bank_max else (total_credit - total_debit)
+def _process_date_group(date, group_rows):
+    debit_list, credit_list, total_debit, total_credit = _extract_transactions(group_rows)
+    bank_last = _calculate_bank_balances(group_rows)
+    closing_balance = sum(bank_last.values()) if bank_last else (total_credit - total_debit)
 
     return {"date": date, "debit": debit_list, "credit": credit_list,
             "total_debit": total_debit, "total_credit": total_credit,

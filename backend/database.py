@@ -13,6 +13,11 @@ CREATE_INDEX_DATE_SQL = """
     CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)
 """
 
+DISTINCT_BANKS_SQL = """
+    SELECT DISTINCT COALESCE(NULLIF(TRIM(source_bank),''), 'Unknown')
+    FROM transactions WHERE date = ? AND balance IS NOT NULL
+"""
+
 
 def connect_user_db(username):
     db_path = os.path.join(USERS_DB_FOLDER, username + ".db")
@@ -44,6 +49,7 @@ def create_user_ledger(username):
             credit REAL DEFAULT 0,
             balance REAL,
             source_bank TEXT DEFAULT '',
+            stmt_order INTEGER DEFAULT NULL,
             created_at TEXT NOT NULL,
             UNIQUE(date, description, debit, credit, balance, source_bank)
         )
@@ -171,6 +177,7 @@ def _recreate_transactions_table(cursor, cols):
             credit REAL DEFAULT 0,
             balance REAL,
             source_bank TEXT DEFAULT '',
+            stmt_order INTEGER DEFAULT NULL,
             created_at TEXT NOT NULL,
             UNIQUE(date, description, debit, credit, balance, source_bank)
         )
@@ -196,6 +203,8 @@ def _add_missing_columns(cursor, cols):
         cursor.execute("ALTER TABLE transactions ADD COLUMN user_description TEXT DEFAULT ''")
     if "source_bank" not in cols:
         cursor.execute("ALTER TABLE transactions ADD COLUMN source_bank TEXT DEFAULT ''")
+    if "stmt_order" not in cols:
+        cursor.execute("ALTER TABLE transactions ADD COLUMN stmt_order INTEGER DEFAULT NULL")
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +326,8 @@ def insert_transactions_bulk(username, transactions, source_bank=""):
 
         cursor.execute(
             """INSERT OR IGNORE INTO transactions
-               (date, name, description, user_description, debit, credit, balance, source_bank, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (date, name, description, user_description, debit, credit, balance, source_bank, stmt_order, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 iso_date,
                 txn.get("name", ""),
@@ -328,6 +337,7 @@ def insert_transactions_bulk(username, transactions, source_bank=""):
                 credit,
                 balance,
                 bank,
+                txn.get("stmt_order", None),
                 created_at,
             ),
         )
@@ -340,44 +350,81 @@ def insert_transactions_bulk(username, transactions, source_bank=""):
     conn.close()
 
 
+def _get_closing_balance_for_bank(cursor, date, bank):
+    """
+    Get the true end-of-day closing balance for a bank on a date.
+    
+    Uses stmt_order (original PDF row position) if available — this is the
+    ground truth regardless of whether the bank prints newest-first or oldest-first.
+    
+    If stmt_order is not available (old data), falls back to balance-delta math:
+    tries both ASC and DESC id order, picks whichever produces a consistent
+    running total (balance[i] = balance[i-1] - debit[i] + credit[i]).
+    The last row in the correct chronological sequence = closing balance.
+    """
+    cursor.execute("""
+        SELECT id, debit, credit, balance, stmt_order
+        FROM transactions
+        WHERE date = ?
+          AND COALESCE(NULLIF(TRIM(source_bank),''), 'Unknown') = ?
+          AND balance IS NOT NULL
+        ORDER BY id ASC
+    """, (date, bank))
+    rows = cursor.fetchall()
+    if not rows:
+        return None
+    if len(rows) == 1:
+        return float(rows[0][2] if rows[0][3] is None else rows[0][3])
+
+    # ── Strategy 1: use stmt_order if present ────────────────────────────────
+    has_stmt_order = any(r[4] is not None for r in rows)
+    if has_stmt_order:
+        ordered = sorted(rows, key=lambda r: r[4] if r[4] is not None else 999999)
+        return float(ordered[-1][3])  # last in statement order = closing balance
+
+    # ── Strategy 2: balance-delta math to detect order ───────────────────────
+    def count_consistent(seq):
+        score = 0
+        for i in range(1, len(seq)):
+            expected = round(seq[i-1][3] - seq[i][1] + seq[i][2], 2)
+            if abs(expected - round(seq[i][3], 2)) < 1.0:
+                score += 1
+        return score
+
+    asc_score  = count_consistent(rows)
+    desc_score = count_consistent(list(reversed(rows)))
+
+    if desc_score > asc_score:
+        return float(rows[0][3])   # newest-first (IOB): first in ASC = closing
+    else:
+        return float(rows[-1][3])  # oldest-first (HDFC): last in ASC = closing
+
+
 def _get_per_bank_balances(cursor, date):
     """
     Return {bank_name: closing_balance} for DISPLAY split only.
-    Uses MAX(id) per bank to get the true end-of-day closing balance,
-    regardless of insertion order (works for all banks — IOB newest-first,
-    HDFC oldest-first, etc.).
-    Returns {} if only one bank (caller shows normal single balance bar).
+    Uses stmt_order (PDF row position) as ground truth when available,
+    falls back to balance-delta math for old data without stmt_order.
+    Returns {} if only one bank.
     Returns {bank_A: x, bank_B: y} if 2+ banks exist on that date.
     """
-    # Safety: ensure column exists
     try:
         cursor.execute("SELECT source_bank FROM transactions LIMIT 1")
     except Exception:
         cursor.execute("ALTER TABLE transactions ADD COLUMN source_bank TEXT DEFAULT ''")
         cursor.connection.commit()
 
-    # MAX(id) per bank = last inserted row per bank = true closing balance
-    # regardless of what order the bank PDF was printed in
-    cursor.execute("""
-        SELECT COALESCE(NULLIF(TRIM(t.source_bank), ''), 'Unknown') as bank,
-               t.balance
-        FROM transactions t
-        INNER JOIN (
-            SELECT COALESCE(NULLIF(TRIM(source_bank), ''), 'Unknown') as bank,
-                   MAX(id) as max_id
-            FROM transactions
-            WHERE date = ? AND balance IS NOT NULL
-            GROUP BY COALESCE(NULLIF(TRIM(source_bank), ''), 'Unknown')
-        ) last ON COALESCE(NULLIF(TRIM(t.source_bank), ''), 'Unknown') = last.bank
-               AND t.id = last.max_id
-        WHERE t.date = ?
-    """, (date, date))
-
-    rows = cursor.fetchall()
-    if not rows:
+    cursor.execute(DISTINCT_BANKS_SQL, (date,))
+    banks = [row[0] for row in cursor.fetchall()]
+    if not banks:
         return {}
 
-    return {row[0]: float(row[1]) for row in rows}
+    return {
+        bank: bal
+        for bank in banks
+        for bal in [_get_closing_balance_for_bank(cursor, date, bank)]
+        if bal is not None
+    }
 
 
 def _update_daily_summary(cursor, date):
@@ -390,20 +437,16 @@ def _update_daily_summary(cursor, date):
     """, (date,))
     total_debit, total_credit, count = cursor.fetchone()
 
-    # Closing balance = sum of each bank's MAX(id) balance for this date
-    # MAX(id) per bank = true end-of-day balance regardless of insertion order
-    cursor.execute("""
-        SELECT COALESCE(SUM(b.balance), NULL)
-        FROM (
-            SELECT MAX(id) as max_id
-            FROM transactions
-            WHERE date = ? AND balance IS NOT NULL
-            GROUP BY COALESCE(NULLIF(TRIM(source_bank), ''), 'Unknown')
-        ) last
-        JOIN transactions b ON b.id = last.max_id
-    """, (date,))
-    row = cursor.fetchone()
-    closing = row[0] if row else None
+    # Closing balance = sum of true closing balance per bank
+    cursor.execute(DISTINCT_BANKS_SQL, (date,))
+    banks = [r[0] for r in cursor.fetchall()]
+    closing = None
+    if banks:
+        total = sum(
+            b for b in (_get_closing_balance_for_bank(cursor, date, bank) for bank in banks)
+            if b is not None
+        )
+        closing = total if total else None
 
     cursor.execute("""
         INSERT OR REPLACE INTO daily_summary
@@ -522,19 +565,16 @@ def get_summary_by_date(username, date):
     # Per-bank balances (display split only — does NOT affect closing_balance)
     bank_balances = _get_per_bank_balances(cursor, date)
 
-    # Closing balance = sum of each bank's MAX(id) balance for this date
-    cursor.execute("""
-        SELECT COALESCE(SUM(b.balance), NULL)
-        FROM (
-            SELECT MAX(id) as max_id
-            FROM transactions
-            WHERE date = ? AND balance IS NOT NULL
-            GROUP BY COALESCE(NULLIF(TRIM(source_bank), ''), 'Unknown')
-        ) last
-        JOIN transactions b ON b.id = last.max_id
-    """, (date,))
-    bal_row = cursor.fetchone()
-    closing_balance = float(bal_row[0]) if bal_row and bal_row[0] is not None else (total_credit - total_debit)
+    # Closing balance = sum of true closing balance per bank
+    cursor.execute(DISTINCT_BANKS_SQL, (date,))
+    banks = [r[0] for r in cursor.fetchall()]
+    if banks:
+        closing_balance = sum(
+            b for b in (_get_closing_balance_for_bank(cursor, date, bank) for bank in banks)
+            if b is not None
+        ) or (total_credit - total_debit)
+    else:
+        closing_balance = total_credit - total_debit
 
     conn.close()
     return {
