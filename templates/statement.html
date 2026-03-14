@@ -633,7 +633,11 @@
                             <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                                 <polyline points="22 4 12 14.01 9 11.01"/>
-                            </svg> ✅ Approved! Connect Drive now
+                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                <polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg> Approved! Connect Drive now
                         </a>
                         {% elif drive_requested %}
                         <span class="profile-menu-item" style="color:#f59e0b;cursor:default;">
@@ -641,7 +645,11 @@
                                 <circle cx="12" cy="12" r="10"/>
                                 <line x1="12" y1="8" x2="12" y2="12"/>
                                 <line x1="12" y1="16" x2="12.01" y2="16"/>
-                            </svg> ⏳ Awaiting approval...
+                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                            </svg> Awaiting approval...
                         </span>
                         {% else %}
                         <button type="button" class="profile-menu-item"
@@ -686,7 +694,15 @@
     <!-- Logout Modal -->
     <div class="modal-overlay" id="logoutModal">
         <div class="modal-content" style="max-width:380px;text-align:center;">
-            <div style="font-size:40px;margin-bottom:12px;">👋</div>
+            <div style="width:56px;height:56px;border-radius:50%;background:rgba(220,53,69,0.1);
+            display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#dc3545"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16 17 21 12 16 7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            </div>
             <h3 style="margin-bottom:8px;">Logout?</h3>
             <p style="color:var(--text-secondary);font-size:14px;margin-bottom:24px;">Are you sure you want to logout?
             </p>
@@ -1105,7 +1121,18 @@
                 style="position:absolute;top:14px;right:16px;background:none;border:none;
                        font-size:20px;cursor:pointer;color:var(--text-secondary,#666);line-height:1;">✕</button>
             <h3 style="margin:0 0 6px;font-size:17px;font-weight:700;color:var(--text-primary,#111);">
-                🔗 Connect Google Drive
+                <span style="display:inline-flex;align-items:center;gap:8px;">
+                    <span style="width:32px;height:32px;border-radius:8px;background:rgba(26,86,196,0.1);
+                                 display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a56c4"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                            <polyline points="15 3 21 3 21 9"/>
+                            <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                    </span>
+                    Connect Google Drive
+                </span>
             </h3>
             <p style="font-size:13px;color:var(--text-secondary,#666);margin-bottom:22px;line-height:1.5;">
                 Enter your Gmail address so the admin can approve your Drive access.
