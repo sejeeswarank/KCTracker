@@ -1,5 +1,8 @@
 flask
 flask-limiter
+fastapi
+uvicorn
+python-multipart
 bcrypt
 pandas
 openpyxl
