@@ -124,14 +124,21 @@ def _fix_dual_entry(df):
 
 
 def _clean_amount(value):
-    """Convert a raw amount value to a float."""
+    """Convert a raw amount value to a float.
+
+    Handles IOB-style no-space suffixes: '1,234.56Cr', '1,234.56Dr'
+    as well as standard spaced variants: '1,234.56 CR', '1,234.56 DR'.
+    """
     if not value:
         return 0.0
     text = str(value).strip()
     if text == "" or text.lower() in ("nan", "none"):
         return 0.0
-    text = re.sub(r"[₹$€£,\s]", "", text)
-    text = re.sub(r"\s*(DR|CR|dr|cr)\s*$", "", text)
+    # Strip currency symbols and commas only — keep spaces so suffix regex works
+    text = re.sub(r"[₹$€£,]", "", text)
+    # Strip DR/CR suffix with or without leading space, any case
+    # Covers: '1234.56Cr', '1234.56 CR', '1234.56dr', '1234.56 Dr'
+    text = re.sub(r"\s*(DR|CR|Dr|Cr|dr|cr)\s*$", "", text).strip()
     try:
         return abs(float(text))
     except ValueError:

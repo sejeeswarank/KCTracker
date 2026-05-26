@@ -140,11 +140,7 @@ def parse_pdf(file_path, password=None):
                     if raw_rows:
                         print(f"[Parser] HDFC fast-path: {len(raw_rows)} rows")
                         df = pd.DataFrame(raw_rows)
-                        return _normalize_pipeline(df, {
-                            "mode": "dual_column",
-                            "has_balance": True,
-                            "confidence": 0.95,
-                        }), bank_code
+                        return _normalize_pipeline(df), bank_code
                 except Exception as e:
                     print(f"[Parser] HDFC fast-path failed: {e}, trying universal")
 
@@ -155,11 +151,7 @@ def parse_pdf(file_path, password=None):
                 df = pd.DataFrame(raw_rows)
                 print(f"[Parser] DataFrame columns: {list(df.columns)}")
                 print(f"[Parser] DataFrame sample:\n{df.head(2)}")
-                return _normalize_pipeline(df, {
-                    "mode": "dual_column",
-                    "has_balance": True,
-                    "confidence": 0.90,
-                }), bank_code
+                return _normalize_pipeline(df), bank_code
 
     except Exception as e:
         print(f"[Parser] Universal parse failed: {e}, falling back to generic table pipeline")
@@ -182,7 +174,7 @@ def parse_pdf(file_path, password=None):
 
     print(f"[Parser] {len(raw_rows)} raw -> {len(segmented)} segmented -> {len(filtered)} filtered")
     df = pd.DataFrame(filtered)
-    return _normalize_pipeline(df, format_info), bank_code
+    return _normalize_pipeline(df), bank_code
 
 
 def _extract_raw_pdf(file_path, password):
@@ -530,7 +522,7 @@ def _extract_trailing_amounts(parts):
 # ---------------------------------------------------------------------------
 # Normalization Pipeline (shared by CSV, Excel, PDF)
 # ---------------------------------------------------------------------------
-def _normalize_pipeline(df, format_info=None):
+def _normalize_pipeline(df):
     """
     Full normalization pipeline:
     Phase 5: Column Mapping
@@ -543,7 +535,7 @@ def _normalize_pipeline(df, format_info=None):
     df = df.copy()
 
     # Phase 5: Column Mapping
-    df = map_columns(df, format_info)
+    df = map_columns(df)
 
     # Clean dates
     df = _clean_dates(df)

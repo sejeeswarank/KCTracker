@@ -43,13 +43,12 @@ _COLUMN_MAP = {
 }
 
 
-def map_columns(df, format_info=None):
+def map_columns(df):
     """
     Map raw DataFrame columns to standard names (date, description, debit, credit, balance).
 
     Args:
         df: Raw DataFrame with original column names
-        format_info: Optional format detection result
 
     Returns:
         DataFrame with standardized column names
@@ -57,13 +56,7 @@ def map_columns(df, format_info=None):
     df = df.dropna(how="all")
 
     # Step 1: Try header-based mapping
-    renamed = {}
-    for col in df.columns:
-        resolved = _resolve_column_name(col)
-        if resolved:
-            renamed[col] = resolved
-
-    df = df.rename(columns=renamed)
+    df = _header_based_mapping(df)
 
     # Step 2: Handle single "amount" column with DR/CR splitting
     if "amount" in df.columns and "debit" not in df.columns:
@@ -74,15 +67,37 @@ def map_columns(df, format_info=None):
         df = _detect_numeric_columns(df)
 
     # Step 4: Ensure all required columns exist
+    df = _ensure_required_columns(df)
+
+    # Step 5: Drop helper columns
+    df = _drop_helper_columns(df)
+
+    return df
+
+
+def _header_based_mapping(df):
+    """Try header-based mapping of raw columns."""
+    renamed = {}
+    for col in df.columns:
+        resolved = _resolve_column_name(col)
+        if resolved:
+            renamed[col] = resolved
+    return df.rename(columns=renamed)
+
+
+def _ensure_required_columns(df):
+    """Ensure all required columns (date, description, debit, credit, balance) exist."""
     for col in ["date", "description", "debit", "credit", "balance"]:
         if col not in df.columns:
             df[col] = 0 if col in ("debit", "credit", "balance") else ""
+    return df
 
-    # Step 5: Drop helper columns
+
+def _drop_helper_columns(df):
+    """Drop temporary/helper columns."""
     for drop_col in ("time", "amount", "type", "ref", "chq", "cheque"):
         if drop_col in df.columns:
             df = df.drop(columns=[drop_col])
-
     return df
 
 
@@ -192,14 +207,21 @@ def _detect_direction_from_type(row):
 
 
 def _clean_amount(value):
-    """Convert a raw amount value to a float."""
+    """Convert a raw amount value to a float.
+
+    Handles IOB-style no-space suffixes: '1,234.56Cr', '1,234.56Dr'
+    as well as standard spaced variants: '1,234.56 CR', '1,234.56 DR'.
+    """
     if not value:
         return 0.0
     text = str(value).strip()
     if text == "" or text.lower() in ("nan", "none"):
         return 0.0
-    text = re.sub(r"[₹$€£,\s]", "", text)
-    text = re.sub(r"\s*(DR|CR|dr|cr)\s*$", "", text)
+    # Strip currency symbols and commas only — keep spaces so suffix regex works
+    text = re.sub(r"[₹$€£,]", "", text)
+    # Strip DR/CR suffix with or without leading space, any case
+    # Covers: '1234.56Cr', '1234.56 CR', '1234.56dr', '1234.56 Dr'
+    text = re.sub(r"\s*(DR|CR|Dr|Cr|dr|cr)\s*$", "", text).strip()
     try:
         return abs(float(text))
     except ValueError:
