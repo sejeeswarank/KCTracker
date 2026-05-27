@@ -239,6 +239,13 @@ def sync_all(username):
     """
     from config import AUTH_DB_PATH
 
+    if not is_connected(username):
+        return {
+            "success": False,
+            "message": "Google Drive is not connected yet. Please request access and connect Drive first.",
+            "details": [],
+        }
+
     auth_db = AUTH_DB_PATH
     user_db = os.path.join(USERS_DB_FOLDER, f"{username}.db")
     user_db_name = f"{username}.db"
@@ -305,6 +312,9 @@ def sync_upload_after_change(username):
     """
     from config import AUTH_DB_PATH
 
+    if not is_connected(username):
+        return {"success": True, "message": "Drive not connected. Changes saved locally only."}
+
     auth_db = AUTH_DB_PATH
     user_db = os.path.join(USERS_DB_FOLDER, f"{username}.db")
 
@@ -331,4 +341,4 @@ def is_connected(username):
     Check if the user has already linked a Google Drive account.
     Returns True if a valid token file exists for this user.
     """
-    return os.path.exists(_user_token_file(username))
+    return bool(username) and os.path.exists(_user_token_file(username))

@@ -33,6 +33,7 @@ from backend.database import (
     get_all_bank_credentials,
     delete_bank_credential,
     rebuild_daily_summary,
+    set_merchant_alias,
 )
 from backend.security import encrypt_password as encrypt_bank_pw, decrypt_password as decrypt_bank_pw
 from backend.parser import parse_statement, allowed_file, group_transactions_for_ledger
@@ -232,6 +233,12 @@ def connect_drive():
     On success, token file is saved and button changes to Sync Drive.
     """
     username = session["username"]
+    if is_connected(username):
+        flash("Google Drive is already connected.", "info")
+        return redirect(url_for("dashboard"))
+    if not is_approved(username):
+        flash("Please request Drive access and wait for admin approval before connecting.", "warning")
+        return redirect(url_for("dashboard"))
     try:
         from backend.sync_manager import authenticate_drive
         authenticate_drive(username)
@@ -546,6 +553,49 @@ def add_transaction_manual(date):
         "balance": None,
         "source_bank": source_bank,
     }], source_bank=source_bank)
+    sync_upload_after_change(username)
+    return jsonify({"success": True})
+
+
+@app.route("/api/update/<int:txn_id>", methods=["POST"])
+@login_required
+def update_txn(txn_id):
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    updated = update_transaction(username, txn_id, data)
+    if updated:
+        sync_upload_after_change(username)
+    return jsonify({"success": bool(updated)})
+
+
+@app.route("/api/delete/<int:txn_id>", methods=["POST"])
+@login_required
+def delete_txn(txn_id):
+    username = session["username"]
+    deleted = delete_transaction(username, txn_id)
+    if deleted:
+        sync_upload_after_change(username)
+    return jsonify({"success": bool(deleted)})
+
+
+@app.route("/api/alias", methods=["POST"])
+@login_required
+def save_alias():
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    raw_description = str(data.get("raw_description", "")).strip()
+    display_name = str(data.get("display_name", "")).strip()
+    txn_id = data.get("txn_id")
+
+    if not raw_description or not display_name:
+        return jsonify({"success": False, "error": "Missing alias data"}), 400
+
+    set_merchant_alias(username, raw_description, display_name)
+    if txn_id:
+        try:
+            update_transaction(username, int(txn_id), {"name": display_name})
+        except (TypeError, ValueError):
+            pass
     sync_upload_after_change(username)
     return jsonify({"success": True})
 
@@ -894,7 +944,12 @@ def statement_passwords():
             flash(f"Password for '{bank_name}' saved successfully.", "success")
 
     credentials = get_all_bank_credentials(username)
-    return render_template(_TPL_SETTINGS, username=username, credentials=credentials)
+    return render_template(
+        _TPL_SETTINGS,
+        username=username,
+        credentials=credentials,
+        banks=credentials,
+    )
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -932,6 +987,9 @@ def delete_bank_pw(bank_id):
 @login_required
 def sync():
     username = session["username"]
+    if not is_connected(username):
+        flash("Google Drive is not connected yet. Please request access and connect Drive first.", "warning")
+        return redirect(url_for("dashboard"))
     result = sync_all(username)
     category = "success" if result.get("success") else "danger"
     flash(result.get("message", "Sync completed."), category)

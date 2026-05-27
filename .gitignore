@@ -29,3 +29,16 @@ Thumbs.db
 
 # Local data
 data/
+
+# Pytest
+.pytest_cache/
+
+# Build / output artifacts
+graphify-out/
+*.log
+dist/
+build/
+*.egg-info/
+
+# Gemini IDE
+.gemini/

@@ -60,20 +60,11 @@
                                 stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                                 <polyline points="22 4 12 14.01 9 11.01" />
-                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                                <polyline points="22 4 12 14.01 9 11.01" />
                             </svg> Approved! Connect Drive now
                         </a>
                         {% elif drive_requested %}
                         <span class="profile-menu-item" style="color:#f59e0b;cursor:default;">
-                            <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                                stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10" />
-                                <line x1="12" y1="8" x2="12" y2="12" />
-                                <line x1="12" y1="16" x2="12.01" y2="16" />
-                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="12" cy="12" r="10" />
                                 <polyline points="12 6 12 12 16 14" />
@@ -350,6 +341,7 @@
                                 </svg>
                                 Get Statement
                             </a>
+                            {% if drive_connected %}
                             <a href="{{ url_for('sync') }}" class="profile-action-btn">
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -359,6 +351,36 @@
                                 </svg>
                                 Sync Drive
                             </a>
+                            {% elif drive_approved %}
+                            <a href="{{ url_for('connect_drive') }}" class="profile-action-btn">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                    <polyline points="22 4 12 14.01 9 11.01" />
+                                </svg>
+                                Connect Drive
+                            </a>
+                            {% elif drive_requested %}
+                            <span class="profile-action-btn" style="cursor:default;opacity:0.75;">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <polyline points="12 6 12 12 16 14" />
+                                </svg>
+                                Awaiting Approval
+                            </span>
+                            {% else %}
+                            <button type="button" class="profile-action-btn"
+                                onclick="document.getElementById('driveRequestModal').style.display='flex';">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                    <polyline points="15 3 21 3 21 9" />
+                                    <line x1="10" y1="14" x2="21" y2="3" />
+                                </svg>
+                                Request Drive Access
+                            </button>
+                            {% endif %}
                             <button class="profile-action-btn" onclick="showChangePassword(event)">
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

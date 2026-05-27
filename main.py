@@ -418,6 +418,12 @@ async def connect_drive(request: Request):
     username = _enforce_login(request)
     if not username:
         return redirect_to(request, "login")
+    if is_connected(username):
+        flash(request, "Google Drive is already connected.", "info")
+        return redirect_to(request, "dashboard")
+    if not is_approved(username):
+        flash(request, "Please request Drive access and wait for admin approval before connecting.", "warning")
+        return redirect_to(request, "dashboard")
     try:
         from backend.sync_manager import authenticate_drive
 
@@ -992,7 +998,11 @@ async def statement_passwords(request: Request):
             flash(request, f"Password for '{bank_name}' saved successfully.", "success")
 
     credentials = get_all_bank_credentials(username)
-    return render_view(request, _TPL_SETTINGS, {"username": username, "credentials": credentials})
+    return render_view(
+        request,
+        _TPL_SETTINGS,
+        {"username": username, "credentials": credentials, "banks": credentials},
+    )
 
 
 @app.api_route("/settings", methods=["GET", "POST"], name="settings")
@@ -1028,6 +1038,9 @@ async def sync(request: Request):
     username = _enforce_login(request)
     if not username:
         return redirect_to(request, "login")
+    if not is_connected(username):
+        flash(request, "Google Drive is not connected yet. Please request access and connect Drive first.", "warning")
+        return redirect_to(request, "dashboard")
     result = sync_all(username)
     flash(request, result.get("message", "Sync completed."), "success" if result.get("success") else "danger")
     return redirect_to(request, "dashboard")

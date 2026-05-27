@@ -633,19 +633,11 @@
                             <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                                 <polyline points="22 4 12 14.01 9 11.01"/>
-                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                                <polyline points="22 4 12 14.01 9 11.01"/>
                             </svg> Approved! Connect Drive now
                         </a>
                         {% elif drive_requested %}
                         <span class="profile-menu-item" style="color:#f59e0b;cursor:default;">
-                            <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"/>
-                                <line x1="12" y1="8" x2="12" y2="12"/>
-                                <line x1="12" y1="16" x2="12.01" y2="16"/>
-                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="12" cy="12" r="10"/>
                                 <polyline points="12 6 12 12 16 14"/>
@@ -924,6 +916,7 @@
                                 <polyline points="9 18 15 12 9 6" />
                             </svg>
                         </a>
+                        {% if drive_connected %}
                         <a href="{{ url_for('sync') }}" class="quick-link-item">
                             <span class="ql-left"><span class="quick-link-icon"><svg width="15" height="15"
                                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -937,6 +930,45 @@
                                 <polyline points="9 18 15 12 9 6" />
                             </svg>
                         </a>
+                        {% elif drive_approved %}
+                        <a href="{{ url_for('connect_drive') }}" class="quick-link-item">
+                            <span class="ql-left"><span class="quick-link-icon"><svg width="15" height="15"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                        <polyline points="22 4 12 14.01 9 11.01" />
+                                    </svg></span>Connect Drive</span>
+                            <svg class="quick-link-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2">
+                                <polyline points="9 18 15 12 9 6" />
+                            </svg>
+                        </a>
+                        {% elif drive_requested %}
+                        <span class="quick-link-item" style="cursor:default;opacity:0.75;">
+                            <span class="ql-left"><span class="quick-link-icon"><svg width="15" height="15"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <polyline points="12 6 12 12 16 14" />
+                                    </svg></span>Awaiting Approval</span>
+                        </span>
+                        {% else %}
+                        <button type="button" class="quick-link-item"
+                            style="width:100%;border:0;background:transparent;text-align:left;cursor:pointer;"
+                            onclick="document.getElementById('driveRequestModal').style.display='flex';">
+                            <span class="ql-left"><span class="quick-link-icon"><svg width="15" height="15"
+                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                        <polyline points="15 3 21 3 21 9" />
+                                        <line x1="10" y1="14" x2="21" y2="3" />
+                                    </svg></span>Request Drive Access</span>
+                            <svg class="quick-link-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2">
+                                <polyline points="9 18 15 12 9 6" />
+                            </svg>
+                        </button>
+                        {% endif %}
                         <a href="{{ url_for('statement_passwords') }}" class="quick-link-item">
                             <span class="ql-left"><span class="quick-link-icon"><svg width="15" height="15"
                                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

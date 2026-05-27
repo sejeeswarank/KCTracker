@@ -2,9 +2,7 @@
 {% block title %}Analytics{% endblock %}
 
 {% block head %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
-    integrity="sha384-SIMGYRUjwY8+gKg7nn9EItdD8LCADSDfJNutF9TPrvEo86sQmFMh6MyralfIyhADlajSxqc7G0gs7+MwWF/ogQ=="
-    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
     .charts-layout {
         display: flex;
@@ -269,19 +267,11 @@
                             <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                                 <polyline points="22 4 12 14.01 9 11.01"/>
-                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                                <polyline points="22 4 12 14.01 9 11.01"/>
                             </svg> Approved! Connect Drive now
                         </a>
                         {% elif drive_requested %}
                         <span class="profile-menu-item" style="color:#f59e0b;cursor:default;">
-                            <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="10"/>
-                                <line x1="12" y1="8" x2="12" y2="12"/>
-                                <line x1="12" y1="16" x2="12.01" y2="16"/>
-                            </svg> <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            <svg class="pm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="12" cy="12" r="10"/>
                                 <polyline points="12 6 12 12 16 14"/>
@@ -537,27 +527,57 @@
 
     // ── Boot ───────────────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
-        Chart.defaults.font.family = "'Inter', sans-serif";
-        Chart.defaults.color = '#6b7280';
+        if (window.Chart) {
+            Chart.defaults.font.family = "'Inter', sans-serif";
+            Chart.defaults.color = '#6b7280';
+        }
 
         fetch('/api/chart-data')
             .then(r => { if (!r.ok) { throw new Error('API request failed'); } return r.json(); })
             .then(data => {
-                allData = data;
-                updateSummaryStrip(data);
-                buildMonthDropdown(data);
-                setPeriodMode('this_month', document.getElementById('btnPeriodMonth'));
+                allData = normalizeChartRows(data);
+                if (!allData.length) { showEmptySummaryStrip(); showNoData('chartLine', 'loadingLine'); return; }
+                updateSummaryStrip(allData);
+                buildMonthDropdown(allData);
+                // Pick the best default period that actually has data
+                const latestDate = parseISODate(allData[allData.length - 1].date);
+                const thisPrefix = ymPrefix(latestDate);
+                const pm = new Date(latestDate.getFullYear(), latestDate.getMonth() - 1, 1);
+                const prevPrefix = ymPrefix(pm);
+                if (allData.some(d => d.date.startsWith(thisPrefix))) {
+                    setPeriodMode('this_month', document.getElementById('btnPeriodMonth'));
+                } else if (allData.some(d => d.date.startsWith(prevPrefix))) {
+                    setPeriodMode('prev_month', document.querySelector('#periodPills .toggle-pill:nth-child(2)'));
+                } else if (allData.some(d => d.date.startsWith(String(latestDate.getFullYear())))) {
+                    setPeriodMode('year', document.querySelector('#periodPills .toggle-pill:nth-child(4)'));
+                } else {
+                    selectLatestMonth();
+                }
             })
-            .catch(() => showNoData('chartLine', 'loadingLine'));
+            .catch(err => { console.error('chart-data fetch error:', err); showEmptySummaryStrip(); showNoData('chartLine', 'loadingLine'); });
 
         fetch('/api/bank-balances')
             .then(r => { if (!r.ok) { throw new Error('API request failed'); } return r.json(); })
             .then(data => {
-                allBankData = data;
-                buildBankMonthDropdown(data);
-                setBankPeriod('this_month', document.getElementById('btnBankThisMonth'));
+                allBankData = normalizeBankRows(data);
+                if (!allBankData.length) { showNoData('chartBank', 'loadingBank'); return; }
+                buildBankMonthDropdown(allBankData);
+                // Pick the best default period that actually has data
+                const latestDate = parseISODate(allBankData[allBankData.length - 1].date);
+                const thisPrefix = ymPrefix(latestDate);
+                const pm = new Date(latestDate.getFullYear(), latestDate.getMonth() - 1, 1);
+                const prevPrefix = ymPrefix(pm);
+                if (allBankData.some(d => d.date.startsWith(thisPrefix))) {
+                    setBankPeriod('this_month', document.getElementById('btnBankThisMonth'));
+                } else if (allBankData.some(d => d.date.startsWith(prevPrefix))) {
+                    setBankPeriod('prev_month', document.querySelector('#bankPeriodPills .toggle-pill:nth-child(2)'));
+                } else if (allBankData.some(d => d.date.startsWith(String(latestDate.getFullYear())))) {
+                    setBankPeriod('year', document.querySelector('#bankPeriodPills .toggle-pill:nth-child(4)'));
+                } else {
+                    selectLatestBankMonth();
+                }
             })
-            .catch(() => showNoData('chartBank', 'loadingBank'));
+            .catch(err => { console.error('bank-balances fetch error:', err); showNoData('chartBank', 'loadingBank'); });
     });
 
     // ── Credit vs Debit ────────────────────────────────────────────────────────────
@@ -586,10 +606,10 @@
 
     function setPeriodMode(mode, btn) {
         document.querySelectorAll('#periodPills .toggle-pill').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
+        if (btn) btn.classList.add('active');
         selectedWeek = null; hideWeekRow();
         document.getElementById('monthSelect').value = '';
-        const today = new Date();
+        const today = latestChartDate();
         let rangeData = [], label = '';
         if (mode === 'this_month') {
             const prefix = ymPrefix(today);
@@ -615,7 +635,7 @@
             label = 'Year ' + yr; selectedMonth = ''; hideWeekRow();
         }
         setBreadcrumb(label);
-        if (!rangeData.length) { showNoData('chartLine', 'loadingLine'); return; }
+        if (!rangeData.length) { updateSummaryStrip([], label); showNoData('chartLine', 'loadingLine'); return; }
         renderLineDirect(rangeData);
     }
 
@@ -673,6 +693,7 @@
         const debits = data.map(d => +d.total_debit.toFixed(2));
         const credits = data.map(d => +d.total_credit.toFixed(2));
         showCanvas('chartLine', 'loadingLine'); destroyChart('chartLine');
+        if (!window.Chart) { showChartUnavailable('chartLine', 'loadingLine'); return; }
         charts['chartLine'] = new Chart(document.getElementById('chartLine'), {
             type: 'line',
             data: {
@@ -732,10 +753,10 @@
 
     function setBankPeriod(mode, btn) {
         document.querySelectorAll('#bankPeriodPills .toggle-pill').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
+        if (btn) btn.classList.add('active');
         document.getElementById('bankMonthSelect').value = '';
         document.getElementById('bankWeekRow').classList.remove('show');
-        const today = new Date();
+        const today = latestBankDate();
         let filtered = [], label = '';
         if (mode === 'this_month') {
             const prefix = ymPrefix(today);
@@ -833,6 +854,7 @@
         }).filter(Boolean);
 
         showCanvas('chartBank', 'loadingBank'); destroyChart('chartBank');
+        if (!window.Chart) { showChartUnavailable('chartBank', 'loadingBank'); return; }
         charts['chartBank'] = new Chart(document.getElementById('chartBank'), {
             type: 'line',
             data: { labels: dates.map(d => d.slice(5)), datasets },
@@ -868,6 +890,63 @@
     }
 
     // ── Utilities ──────────────────────────────────────────────────────────────────
+    function normalizeChartRows(data) {
+        if (!Array.isArray(data)) return [];
+        return data
+            .filter(d => d && typeof d.date === 'string')
+            .map(d => ({
+                date: d.date.slice(0, 10),
+                total_debit: Number(d.total_debit) || 0,
+                total_credit: Number(d.total_credit) || 0,
+            }))
+            .sort((a, b) => a.date.localeCompare(b.date));
+    }
+    function normalizeBankRows(data) {
+        if (!Array.isArray(data)) return [];
+        return data
+            .filter(d => d && typeof d.date === 'string')
+            .map(d => ({
+                date: d.date.slice(0, 10),
+                bank: d.bank || 'Unknown',
+                balance: Number(d.balance) || 0,
+            }))
+            .sort((a, b) => a.date.localeCompare(b.date));
+    }
+    function parseISODate(iso) {
+        const [y, m, d] = iso.split('-').map(Number);
+        return new Date(y, m - 1, d || 1);
+    }
+    function latestChartDate() {
+        return allData.length ? parseISODate(allData[allData.length - 1].date) : new Date();
+    }
+    function latestBankDate() {
+        return allBankData.length ? parseISODate(allBankData[allBankData.length - 1].date) : new Date();
+    }
+    function selectLatestMonth() {
+        if (!allData.length) return;
+        const lastYm = allData[allData.length - 1].date.slice(0, 7);
+        selectedMonth = lastYm;
+        document.getElementById('monthSelect').value = lastYm;
+        onMonthChange();
+    }
+    function selectLatestBankMonth() {
+        if (!allBankData.length) return;
+        const lastYm = allBankData[allBankData.length - 1].date.slice(0, 7);
+        bankSelectedMonth = lastYm;
+        ensureBankMonthOption(lastYm);
+        document.getElementById('bankMonthSelect').value = lastYm;
+        onBankMonthChange();
+    }
+    function showEmptySummaryStrip() {
+        document.getElementById('stripDebit').textContent = '0';
+        document.getElementById('stripCredit').textContent = '0';
+        document.getElementById('stripBalance').textContent = '0';
+        document.getElementById('stripDays').textContent = '0';
+        document.getElementById('stripDebitSub').textContent = 'No transactions found';
+        document.getElementById('stripCreditSub').textContent = 'No transactions found';
+        document.getElementById('stripBalanceSub').textContent = 'No transactions found';
+        document.getElementById('stripDaysSub').textContent = 'No transactions found';
+    }
     function ymPrefix(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
     function localISO(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     function fmt(n) { return Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -888,6 +967,11 @@
     function showNoData(cId, lId) {
         const el = document.getElementById(lId);
         el.innerHTML = '<div class="no-data-msg"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>No data for this period</div>';
+        el.style.display = 'flex'; document.getElementById(cId).style.display = 'none';
+    }
+    function showChartUnavailable(cId, lId) {
+        const el = document.getElementById(lId);
+        el.innerHTML = '<div class="no-data-msg">Chart library could not load. Please refresh the page.</div>';
         el.style.display = 'flex'; document.getElementById(cId).style.display = 'none';
     }
     function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
