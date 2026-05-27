@@ -2,7 +2,7 @@
 {% block title %}Analytics{% endblock %}
 
 {% block head %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <style>
     .charts-layout {
         display: flex;
@@ -527,7 +527,7 @@
 
     // ── Boot ───────────────────────────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
-        if (window.Chart) {
+        if (globalThis.Chart) {
             Chart.defaults.font.family = "'Inter', sans-serif";
             Chart.defaults.color = '#6b7280';
         }
@@ -693,7 +693,7 @@
         const debits = data.map(d => +d.total_debit.toFixed(2));
         const credits = data.map(d => +d.total_credit.toFixed(2));
         showCanvas('chartLine', 'loadingLine'); destroyChart('chartLine');
-        if (!window.Chart) { showChartUnavailable('chartLine', 'loadingLine'); return; }
+        if (!globalThis.Chart) { showChartUnavailable('chartLine', 'loadingLine'); return; }
         charts['chartLine'] = new Chart(document.getElementById('chartLine'), {
             type: 'line',
             data: {
@@ -854,7 +854,7 @@
         }).filter(Boolean);
 
         showCanvas('chartBank', 'loadingBank'); destroyChart('chartBank');
-        if (!window.Chart) { showChartUnavailable('chartBank', 'loadingBank'); return; }
+        if (!globalThis.Chart) { showChartUnavailable('chartBank', 'loadingBank'); return; }
         charts['chartBank'] = new Chart(document.getElementById('chartBank'), {
             type: 'line',
             data: { labels: dates.map(d => d.slice(5)), datasets },
