@@ -118,7 +118,7 @@ def login_required(f):
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
     if "username" in session:
         return redirect(url_for("dashboard"))
@@ -154,7 +154,9 @@ def login():
             # Drive sync is now manual — removed sync_download_on_login
             flash("Login successful!", "success")
             return redirect(url_for("dashboard"))
-        flash(result, "danger")
+        
+        err_msg = result if isinstance(result, str) else "Invalid username or password."
+        flash(err_msg, "danger")
 
     return render_template("login.html")
 
@@ -194,7 +196,7 @@ def _validate_registration():
     return None
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["GET"])
 def logout():
     session.clear()
     flash("You have been logged out.", "info")
@@ -225,7 +227,7 @@ def request_drive_access():
     return redirect(url_for("dashboard"))
 
 
-@app.route("/connect-drive")
+@app.route("/connect-drive", methods=["GET"])
 @login_required
 def connect_drive():
     """
@@ -252,7 +254,7 @@ def connect_drive():
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
-@app.route("/dashboard")
+@app.route("/dashboard", methods=["GET"])
 @login_required
 def dashboard():
     return render_template("dashboard.html", username=session["username"])
@@ -261,7 +263,7 @@ def dashboard():
 # ---------------------------------------------------------------------------
 # Calendar API - returns events for FullCalendar
 # ---------------------------------------------------------------------------
-@app.route("/api/events")
+@app.route("/api/events", methods=["GET"])
 @login_required
 def api_events():
     username = session["username"]
@@ -286,7 +288,7 @@ def api_events():
 # ---------------------------------------------------------------------------
 # Summary & Detail views
 # ---------------------------------------------------------------------------
-@app.route("/summary/<date>")
+@app.route("/summary/<date>", methods=["GET"])
 @login_required
 def summary(date):
     username = session["username"]
@@ -295,7 +297,7 @@ def summary(date):
     return render_template("summary.html", date=display_date, summary=summary_data, username=username)
 
 
-@app.route("/api/summary/<date>")
+@app.route("/api/summary/<date>", methods=["GET"])
 @login_required
 def api_summary(date):
     username = session["username"]
@@ -308,7 +310,7 @@ def api_summary(date):
     })
 
 
-@app.route("/ledger/<date>")
+@app.route("/ledger/<date>", methods=["GET"])
 @login_required
 def ledger_details(date):
     username = session["username"]
@@ -375,11 +377,12 @@ def upload():
     file = request.files.get("file")
     bank_name = request.form.get("bank_name", "").strip()
 
-    if not file or file.filename == "":
+    if not file or not file.filename:
         flash("No file selected.", "warning")
         return _render_upload(username, bank_names)
 
-    if not allowed_file(file.filename):
+    filename = file.filename
+    if not allowed_file(filename):
         flash("Unsupported file type. Please upload a PDF, CSV, or Excel file.", "danger")
         return _render_upload(username, bank_names)
 
@@ -388,7 +391,7 @@ def upload():
         flash(err, "danger")
         return _render_upload(username, bank_names)
 
-    temp_path = os.path.join(TEMP_FOLDER, "temp_statement" + os.path.splitext(file.filename)[1])
+    temp_path = os.path.join(TEMP_FOLDER, "temp_statement" + os.path.splitext(filename)[1])
     file.save(temp_path)
     try:
         result = parse_statement(temp_path, password=stmt_password)
@@ -498,7 +501,7 @@ def _handle_preview_save():
 # ---------------------------------------------------------------------------
 # API Routes (JSON — mobile-ready)
 # ---------------------------------------------------------------------------
-@app.route("/api/ledger/<date>")
+@app.route("/api/ledger/<date>", methods=["GET"])
 @login_required
 def api_ledger(date):
     username = session["username"]
@@ -506,7 +509,7 @@ def api_ledger(date):
     return jsonify(ledger)
 
 
-@app.route("/api/statement")
+@app.route("/api/statement", methods=["GET"])
 @login_required
 def api_statement():
     username = session["username"]
@@ -565,7 +568,7 @@ def update_txn(txn_id):
     updated = update_transaction(username, txn_id, data)
     if updated:
         sync_upload_after_change(username)
-    return jsonify({"success": bool(updated)})
+    return jsonify({"success": updated})
 
 
 @app.route("/api/delete/<int:txn_id>", methods=["POST"])
@@ -575,7 +578,7 @@ def delete_txn(txn_id):
     deleted = delete_transaction(username, txn_id)
     if deleted:
         sync_upload_after_change(username)
-    return jsonify({"success": bool(deleted)})
+    return jsonify({"success": deleted})
 
 
 @app.route("/api/alias", methods=["POST"])
@@ -603,7 +606,7 @@ def save_alias():
 # ---------------------------------------------------------------------------
 # Profile & Account
 # ---------------------------------------------------------------------------
-@app.route("/profile")
+@app.route("/profile", methods=["GET"])
 @login_required
 def profile():
     username = session["username"]
@@ -666,12 +669,13 @@ def profile():
 def upload_profile_photo():
     username = session["username"]
     file = request.files.get("photo")
-    if not file or file.filename == "":
+    if not file or not file.filename:
         flash("No file selected.", "warning")
         return redirect(url_for("profile"))
 
+    filename = file.filename
     allowed = {"jpg", "jpeg", "png", "gif", "webp"}
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in allowed:
         flash("Only image files are allowed (jpg, png, gif, webp).", "danger")
         return redirect(url_for("profile"))
@@ -724,20 +728,20 @@ def change_password():
 # ---------------------------------------------------------------------------
 # Analytics
 # ---------------------------------------------------------------------------
-@app.route("/analytics")
+@app.route("/analytics", methods=["GET"])
 @login_required
 def analytics():
     return render_template("analytics.html", username=session["username"])
 
 
-@app.route("/api/chart-data")
+@app.route("/api/chart-data", methods=["GET"])
 @login_required
 def api_chart_data():
     data = get_all_dates_summary(session["username"])
     return jsonify(data)
 
 
-@app.route("/api/bank-balances")
+@app.route("/api/bank-balances", methods=["GET"])
 @login_required
 def api_bank_balances():
     username = session["username"]
@@ -746,7 +750,7 @@ def api_bank_balances():
     return jsonify(data)
 
 
-@app.route("/api/debug-bank")
+@app.route("/api/debug-bank", methods=["GET"])
 @login_required
 def debug_bank():
     from backend.database import connect_user_db
@@ -774,7 +778,7 @@ def debug_bank():
 # ---------------------------------------------------------------------------
 # Export routes
 # ---------------------------------------------------------------------------
-@app.route("/export/date/<date>/<fmt>")
+@app.route("/export/date/<date>/<fmt>", methods=["GET"])
 @login_required
 def export_date_route(date, fmt):
     username = session["username"]
@@ -782,7 +786,7 @@ def export_date_route(date, fmt):
     return _send_and_cleanup(filepath)
 
 
-@app.route("/export/range/<fmt>")
+@app.route("/export/range/<fmt>", methods=["GET"])
 @login_required
 def export_range_route(fmt):
     username = session["username"]
@@ -992,7 +996,8 @@ def sync():
         return redirect(url_for("dashboard"))
     result = sync_all(username)
     category = "success" if result.get("success") else "danger"
-    flash(result.get("message", "Sync completed."), category)
+    msg = str(result.get("message", "Sync completed."))
+    flash(msg, category)
     return redirect(url_for("dashboard"))
 
 

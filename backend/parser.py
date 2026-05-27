@@ -75,7 +75,7 @@ def parse_statement(file_path, password=None):
 def parse_csv(file_path):
     """Parse a CSV bank statement."""
     df = pd.read_csv(file_path)
-    df.columns = [str(c).strip().lower() for c in df.columns]
+    df.columns = [c.strip().lower() for c in df.columns]
     return _normalize_pipeline(df)
 
 

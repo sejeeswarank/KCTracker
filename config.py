@@ -29,12 +29,13 @@ TEMP_FOLDER = os.path.join(_PROJECT_ROOT, "data", "temp/")
 # Flask secret key for session management
 # REQUIRED: Must be set in .env file. No hardcoded fallback.
 # ---------------------------------------------------------------------------
-SECRET_KEY = os.environ.get("SECRET_KEY")
-if not SECRET_KEY:
+_secret = os.environ.get("SECRET_KEY")
+if not _secret:
     raise RuntimeError(
         "SECRET_KEY is not set. Add it to your .env file.\n"
         "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
     )
+SECRET_KEY: str = _secret
 
 # ---------------------------------------------------------------------------
 # Fernet encryption key for bank statement passwords

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -48,6 +48,7 @@ _TPL_REGISTER = "register.html"
 _TPL_UPLOAD = "upload.html"
 _TPL_STATEMENT = "statement.html"
 _TPL_SETTINGS = "statement_passwords.html"
+_TPL_LOGIN = "login.html"
 
 app = FastAPI(title="KC Tracker")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="lax")
@@ -226,10 +227,11 @@ def _get_latest_balance_for_statement(username: str, all_dates: list[dict[str, A
     latest_date_str = ""
     if all_dates:
         latest = all_dates[-1]
-        latest_date_str = latest.get("date", "")
+        latest_date_str = str(latest.get("date", ""))
         try:
             day_summary = get_summary_by_date(username, latest_date_str)
-            latest_balance = day_summary.get("balance", 0.0)
+            bal_val = day_summary.get("balance", 0.0)
+            latest_balance = float(bal_val) if isinstance(bal_val, (int, float)) else 0.0
         except Exception:
             pass
     return latest_balance, latest_date_str
@@ -335,7 +337,7 @@ async def login(request: Request):
         bucket_base = f"login:{_client_key(request)}"
         if _is_rate_limited(f"{bucket_base}:minute", 10, 60) or _is_rate_limited(f"{bucket_base}:hour", 50, 3600):
             flash(request, "Too many login attempts. Please try again later.", "danger")
-            return render_view(request, "login.html")
+            return render_view(request, _TPL_LOGIN)
 
         form = await request.form()
         username = str(form.get("username", "")).strip()
@@ -343,7 +345,7 @@ async def login(request: Request):
 
         if not username or not password:
             flash(request, "Please fill in all fields.", "danger")
-            return render_view(request, "login.html")
+            return render_view(request, _TPL_LOGIN)
 
         success, result = login_user(username, password)
         if success:
@@ -355,7 +357,7 @@ async def login(request: Request):
 
         flash(request, str(result), "danger")
 
-    return render_view(request, "login.html")
+    return render_view(request, _TPL_LOGIN)
 
 
 @app.api_route("/register", methods=["GET", "POST"], name="register")
@@ -543,11 +545,12 @@ async def upload(request: Request):
     form = await request.form()
     file = form.get("file")
     bank_name = str(form.get("bank_name", "")).strip()
-    if not getattr(file, "filename", "") or not hasattr(file, "file"):
+    if not isinstance(file, UploadFile) or not file.filename:
         flash(request, "No file selected.", "warning")
         return _render_upload(request, username, bank_names)
 
-    if not allowed_file(file.filename):
+    filename = file.filename
+    if not allowed_file(filename):
         flash(request, "Unsupported file type. Please upload a PDF, CSV, or Excel file.", "danger")
         return _render_upload(request, username, bank_names)
 
@@ -556,9 +559,11 @@ async def upload(request: Request):
         flash(request, err, "danger")
         return _render_upload(request, username, bank_names)
 
-    temp_path = os.path.join(TEMP_FOLDER, "temp_statement" + os.path.splitext(file.filename)[1])
-    with open(temp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    temp_path = os.path.join(TEMP_FOLDER, "temp_statement" + os.path.splitext(filename)[1])
+    import anyio
+    content = await file.read()
+    async with await anyio.open_file(temp_path, "wb") as buffer:
+        await buffer.write(content)
 
     try:
         result = parse_statement(temp_path, password=stmt_password)
@@ -571,8 +576,9 @@ async def upload(request: Request):
 
         transactions = apply_merchant_aliases(transactions, username=username)
         preview_path = os.path.join(TEMP_FOLDER, f"{username}_preview.json")
-        with open(preview_path, "w", encoding="utf-8") as preview_file:
-            json.dump(transactions, preview_file)
+        import anyio
+        async with await anyio.open_file(preview_path, "w", encoding="utf-8") as preview_file:
+            await preview_file.write(json.dumps(transactions))
         request.session["preview_file"] = preview_path
         request.session["upload_filename"] = file.filename
         request.session["upload_bank_name"] = resolved_bank
@@ -635,8 +641,10 @@ async def preview(request: Request):
     preview_path = str(request.session.get("preview_file", ""))
     transactions = []
     if preview_path and os.path.exists(preview_path):
-        with open(preview_path, "r", encoding="utf-8") as preview_file:
-            transactions = json.load(preview_file)
+        import anyio
+        async with await anyio.open_file(preview_path, "r", encoding="utf-8") as preview_file:
+            preview_content = await preview_file.read()
+            transactions = json.loads(preview_content)
 
     if not transactions:
         flash(request, "No data to preview. Please upload a file first.", "warning")
@@ -724,7 +732,7 @@ async def update_txn(request: Request, txn_id: int):
     updated = update_transaction(username, txn_id, data)
     if updated:
         sync_upload_after_change(username)
-    return JSONResponse({"success": bool(updated)})
+    return JSONResponse({"success": updated})
 
 
 @app.post("/api/delete/{txn_id}", name="delete_txn")
@@ -735,7 +743,7 @@ async def delete_txn(request: Request, txn_id: int):
     deleted = delete_transaction(username, txn_id)
     if deleted:
         sync_upload_after_change(username)
-    return JSONResponse({"success": bool(deleted)})
+    return JSONResponse({"success": deleted})
 
 
 @app.post("/api/alias", name="save_alias")
@@ -828,12 +836,13 @@ async def upload_profile_photo(request: Request):
         return redirect_to(request, "login")
     form = await request.form()
     file = form.get("photo")
-    if not getattr(file, "filename", "") or not hasattr(file, "file"):
+    if not isinstance(file, UploadFile) or not file.filename:
         flash(request, "No file selected.", "warning")
         return redirect_to(request, "profile")
 
+    filename = file.filename
     allowed = {"jpg", "jpeg", "png", "gif", "webp"}
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in allowed:
         flash(request, "Only image files are allowed (jpg, png, gif, webp).", "danger")
         return redirect_to(request, "profile")
@@ -841,8 +850,10 @@ async def upload_profile_photo(request: Request):
     profile_img_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "img", "profiles")
     os.makedirs(profile_img_folder, exist_ok=True)
     save_path = os.path.join(profile_img_folder, f"{username}.jpg")
-    with open(save_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    import anyio
+    photo_content = await file.read()
+    async with await anyio.open_file(save_path, "wb") as buffer:
+        await buffer.write(photo_content)
     flash(request, "Profile photo updated!", "success")
     return redirect_to(request, "profile")
 
@@ -1042,7 +1053,8 @@ async def sync(request: Request):
         flash(request, "Google Drive is not connected yet. Please request access and connect Drive first.", "warning")
         return redirect_to(request, "dashboard")
     result = sync_all(username)
-    flash(request, result.get("message", "Sync completed."), "success" if result.get("success") else "danger")
+    msg = str(result.get("message", "Sync completed."))
+    flash(request, msg, "success" if result.get("success") else "danger")
     return redirect_to(request, "dashboard")
 
 
