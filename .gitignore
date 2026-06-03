@@ -43,4 +43,5 @@ build/
 # Gemini IDE
 .gemini/
 
+# Testing
 tests/
