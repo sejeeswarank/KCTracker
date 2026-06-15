@@ -1,343 +1,374 @@
-# 🪙 KC Tracker — Complete Banking Ledger & Parser Suite
+# KC Tracker — Banking Ledger & Parser Suite
 
-KC Tracker is a premium, secure, and enterprise-ready bank statement parsing and ledger management dashboard. Built for individuals and small businesses, KC Tracker converts disorganized, multi-format financial statements (from PDFs, CSVs, and Excel files) into beautifully structured, normalized ledger accounts. 
-
-Equipped with a local secure password vault, an auto-learning merchant cleaning database, dynamic analytical tools, and a bidirectional Google Drive cloud synchronization engine, KC Tracker is the ultimate self-hosted control center for your financial data.
+KC Tracker is a self-hosted, multi-user financial dashboard that converts raw bank statements (PDF, CSV, Excel) into a structured, searchable, double-entry ledger. Built for individuals and small businesses, it combines an auto-learning merchant intelligence engine, AES-256 encrypted bank password vault, and a fully offline encrypted backup/restore system — all behind a beautiful glassmorphism UI. **v2.0.0** removes cloud sync dependencies for a fully self-contained deployment.
 
 ---
 
-## 🗺️ High-Level System Architecture & Pipelines
+## 🗺️ System Architecture
 
-The system is split into two halves: a high-speed Python core backend orchestrating mathematical validation, layout-aware PDF extraction, cryptographic operations, and cloud sync; and a gorgeous Bootstrap 5, FullCalendar, and Chart.js frontend dashboard designed for micro-interactions and smooth user workflows.
+The project exposes **two parallel servers** sharing the same backend modules:
+
+| Server | File | Framework | Purpose |
+|--------|------|-----------|---------|
+| **Primary** | `main.py` | **FastAPI + Uvicorn** | Production async server (current default) |
+| **Legacy** | `app.py` | **Flask + Flask-Limiter** | Retained for compatibility; same routes |
+
+Both servers share all `backend/` modules, `templates/`, `static/`, `data/`, and `config.py`.
 
 ```mermaid
 graph TD
-    A[Raw Bank Statement: PDF / CSV / XLS] --> B(Secure Parsing Engine)
-    B -->|Decrypt via Local Fernet Vault| C[Raw Table Extraction]
-    C --> D[10-Phase Data Normalization Pipeline]
-    D -->|Confidence Fingerprinting| E[Merchant Alias & Auto-Learning Database]
-    E --> F[Double-Entry Ledger Layout Preview]
-    F -->|Custom Descriptions & Verification| G[Isolated SQLite User DB]
-    G -->|Official OAuth API| H[Bidirectional Google Drive Sync Folder]
-    G --> I[Dynamic Calendar Dashboard & Analytics]
-    G --> J[Instant PDF / Excel / TXT Exports]
-    K[Admin Approval Loop] -->|Telegram Bot API Notification| H
+    A[Raw Statement: PDF / CSV / XLS] --> B[parse_statement_with_diagnostics]
+    B -->|Fernet decrypt| C[pdf_engine.py — Evidence-based extraction]
+    C -->|OCR fallback| D[ocr_pipeline.py — Tesseract]
+    C --> E[10-Phase Normalization Pipeline]
+    D --> E
+    E --> F[column_mapper → drcr_classifier → balance_validator]
+    F --> G[merchant_extractor → extractor → confidence_engine]
+    G --> H[Diagnostics gate: can_save?]
+    H -->|Blocked| I[Preview — Review Required]
+    H -->|Cleared| J[insert_transactions_bulk → SQLite per-user DB]
+    J --> L[FullCalendar Dashboard / Analytics / Exports]
+    J --> M[export_backup → .kctbackup encrypted file]
+    N[.kctbackup file] --> O[import_backup → Full Restore or Merge]
+    O --> J
 ```
 
-### 1. The 10-Phase Parsing & Normalization Pipeline (`backend/parser.py`)
-When you drop a bank statement into the upload zone, the file passes through a multi-layered sanitization pipeline:
-1. **File Type Resolution:** Auto-detects the extension and MIME type.
-2. **Decryption Check:** If the PDF is password-protected, the server queries the local database for the bank's encrypted credentials, decrypts them in memory using **AES-256 (Fernet)**, and opens the file.
-3. **Table Extraction:** Utilizes `pdfplumber` for native text layout detection. If scanned, it falls back to character distance extraction.
-4. **Segmentation Filter (`row_segmenter.py`):** Combines multi-line transactions (common in HDFC and SBI statements where the narration wraps onto two or three rows) back into unified rows.
-5. **Garbage Sweeper (`garbage_filter.py`):** Trashes empty padding rows, non-transaction lines, header metadata, page count footers, and advertisement text blocks.
-6. **Column Mapping Engine (`column_mapper.py`):** Translates varying headers across banks (e.g., `Value Date`, `Transaction Date`, `Post Date`, `Txn Date`) into standardized internal fields (`date`, `description`, `debit`, `credit`, `balance`).
-7. **Debit/Credit Realignment (`drcr_classifier.py`):** Resolves bank-specific formatting anomalies. If debits and credits are combined in a single column marked with indicators (e.g., `DR`, `CR`, `+`, `-`), the engine splits and normalizes them.
-8. **Mathematical Balance Validator (`balance_validator.py`):** Verifies ledger integrity by ensuring that for every row $N$, $Balance_N = Balance_{N-1} + Credit_N - Debit_N$. Errors are highlighted for correction.
-9. **Merchant Alias Translator (`extractor.py` & `merchant_extractor.py`):** Runs complex bank descriptions (e.g., `UPI-PAYTM-UPI239849201@okaxis-WENDYS-RESTAURANT`) through regex cleaning patterns to extract the true Merchant. If the user has saved a manual display name replacement (e.g., mapping `WENDYS-RESTAURANT` to `Wendy's`), it is automatically applied.
-10. **Idempotent Deduplicator:** Ensures uploaded transactions do not duplicate existing database records using database constraints on `(date, description, debit, credit, balance)`.
+---
+
+## 🔄 The 10-Phase Parsing & Normalization Pipeline
+
+Every uploaded file passes through [`backend/parser.py`](backend/parser.py) — `parse_statement_with_diagnostics()`:
+
+| Phase | Module | What It Does |
+|-------|--------|-------------|
+| 1. **File resolution** | `parser.py` | Detects extension + MIME type; calls `allowed_file()` |
+| 2. **Credential decrypt** | `security.py` | Fetches encrypted PDF password from SQLite vault; decrypts in-memory with Fernet |
+| 3. **PDF extraction** | `pdf_engine.py` | Evidence-based mode selection: ruled-table → fixed-width → layout-text → OCR |
+| 4. **OCR fallback** | `ocr_pipeline.py` | Renders pages with `pdf2image`, runs `pytesseract` on scanned images |
+| 5. **Garbage filter** | `garbage_filter.py` | Drops empty rows, headers, footers, and non-transaction junk |
+| 6. **Row segmentation** | `row_segmenter.py` | Merges multi-line transactions split across PDF rows |
+| 7. **Column mapping** | `column_mapper.py` | Normalises heterogeneous headers → `date / description / debit / credit / balance` |
+| 8. **DR/CR alignment** | `drcr_classifier.py` | Splits combined amount columns using `DR`, `CR`, `+`, `-` indicators |
+| 9. **Balance validation** | `balance_validator.py` | Verifies: `Balance_N = Balance_{N-1} + Credit_N − Debit_N` row-by-row |
+| 10. **Merchant extraction** | `merchant_extractor.py` + `extractor.py` | Strips UPI/NEFT prefixes, extracts merchant name; applies saved alias mappings |
+
+After phase 10, `confidence_engine.py` assigns a quality score. The **diagnostics gate** sets `can_save = False` if reconciliation fails, blocking save until the user reviews.
 
 ---
 
 ## 💻 Technical Stack
 
-- **Backend Architecture:** Python 3.8+, Flask, SQLite3 (multi-tenant isolated database schema)
-- **Data Extractor & Engines:** pandas, pdfplumber, PyPDF2
-- **Cryptographic Security:** cryptography (Fernet symmetric key cryptography), bcrypt (salted user authentication hashing)
-- **Cloud & Messaging Integrations:** Google Drive API v3 (OAuth 2.0 flow), Telegram Bot API (admin approval loops)
-- **Frontend Masterpiece:** HTML5, CSS3 (Vanilla glassmorphism & slate-dark variables), Bootstrap 5, FullCalendar v6, Chart.js v4
+### Backend
+| Layer | Technology |
+|-------|-----------|
+| Primary web framework | **FastAPI** with **Uvicorn** (ASGI) |
+| Legacy web framework | **Flask** with **Flask-Limiter** |
+| Session middleware | `starlette.middleware.sessions.SessionMiddleware` (FastAPI) / `flask.session` |
+| Database | **SQLite 3** — multi-tenant isolated per-user `.db` files |
+| ORM / Query layer | Raw `sqlite3` via `backend/database.py` |
+| Data processing | **pandas**, pdfplumber, xlrd, openpyxl |
+| PDF extraction | **pdfplumber** (primary), PyPDF2, pdf2image + pytesseract (OCR) |
+| Cryptography | **cryptography** (Fernet / AES-256) for vault & backup, **bcrypt** for auth hashing |
+| Backup format | Custom `.kctbackup` — PBKDF2 key derivation + Fernet-encrypted gzip tar |
+| Async I/O | **anyio** for file operations in FastAPI routes |
+
+### Frontend
+| Layer | Technology |
+|-------|-----------|
+| UI framework | **Bootstrap 5** |
+| Calendar | **FullCalendar v6** |
+| Charts | **Chart.js v4** |
+| Styling | Vanilla CSS — glassmorphism dark-mode design system (`static/css/style.css`) |
+| Templating | **Jinja2** (shared between both Flask and FastAPI via Starlette's `Jinja2Templates`) |
 
 ---
 
 ## 📂 Project Structure
 
 ```text
-KC Tracker/
+kt2/
 │
-├── app.py                      # Main Flask application entry point, routes, auth wrappers
-├── config.py                   # Environment vars, path configs, keys
-├── requirements.txt            # Python dependencies
-├── credentials.json            # (Required) Google Drive OAuth client secrets
-├── token.pickle                # (Auto-generated) Google Drive OAuth session token
+├── main.py                     # ★ FastAPI entry point (primary)
+├── app.py                      # Flask entry point (legacy / alternate)
+├── config.py                   # Env vars, paths, Fernet key, ensure_directories()
+├── requirements.txt            # All Python dependencies
+├── data/                       # Writable runtime databases, exports, temp files
+├── static/img/profiles/        # Writable profile photos (source + packaged runtime)
 │
-├── backend/                    # Core Python modules
-│   ├── auth.py                 # User authentication (Register/Login/Bcrypt)
-│   ├── balance_validator.py    # Math validator ensuring Balance = Prev Balance + CR - DR
-│   ├── column_mapper.py        # Maps raw header names to standard internal columns
-│   ├── confidence_engine.py    # Assigns confidence scores to parsed rows
-│   ├── database.py             # SQLite CRUD ops for user-specific databases
-│   ├── drcr_classifier.py      # Fixes debit/credit alignment issues in parsed tables
-│   ├── exporter.py             # Generators for PDF, Excel, and TXT ledger exports
-│   ├── extractor.py            # Merchant alias application
-│   ├── format_detector.py      # Detects PDF table structures and quality
-│   ├── garbage_filter.py       # Drops empty rows or non-transaction PDF junk
-│   ├── hdfc_parser.py          # highly specialized fast-parser for HDFC PDFs
-│   ├── ledger.py               # Formatter generating front-end grouped dictionaries
-│   ├── merchant_extractor.py   # Cleans complex transaction narrations to short Merchant Names
-│   ├── notifier.py             # Telegram notifier and admin approval checker
-│   ├── parser.py               # The Orchestrator for file parsing
-│   ├── row_segmenter.py        # Combines multi-line transactions in dirty PDFs
-│   ├── security.py             # Fernet encryption/decryption for bank passwords
-│   ├── sync_manager.py         # Google Drive Backup/Restore API logic
-│   ├── sync.py                 # Helper runner for sync functions
-│   └── universal_bank_parser.py# Multi-bank auto-detect parsing engine (25+ banks)
+├── backend/                    # Shared core modules
+│   ├── auth.py                 # register_user / login_user / bcrypt hashing
+│   ├── balance_validator.py    # Running-balance integrity checker
+│   ├── column_mapper.py        # Header normalisation across 13+ Indian bank formats
+│   ├── confidence_engine.py    # Row-level quality scoring
+│   ├── database.py             # All SQLite CRUD — transactions, daily_summary, aliases, credentials
+│   ├── drcr_classifier.py      # Debit/credit column split & sign correction
+│   ├── exporter.py             # PDF / Excel / TXT export generators
+│   ├── extractor.py            # Applies saved merchant aliases to transactions
+│   ├── format_detector.py      # Detects PDF table layout quality & extraction strategy
+│   ├── garbage_filter.py       # Strips non-transaction rows from raw extractions
+│   ├── ledger.py               # Groups transactions into double-entry ledger dicts
+│   ├── merchant_extractor.py   # Regex-based narration → merchant name cleaning
+│   ├── notifier.py             # Stub only — Drive/Telegram integration removed in v2.0.0
+│   ├── ocr_pipeline.py         # pdf2image → pytesseract OCR pipeline
+│   ├── parser.py               # Orchestrator: parse_statement_with_diagnostics()
+│   ├── pdf_engine.py           # Evidence-based multi-mode PDF extraction engine
+│   ├── row_segmenter.py        # Multi-line transaction merger
+│   ├── security.py             # encrypt_password / decrypt_password (Fernet)
+│   └── backup.py               # Encrypted export/import — export_backup / preview_backup / import_backup
 │
-├── templates/                  # Frontend HTML (Jinja2) templates
-│   ├── base.html               # Master layout with Bootstrap & Sidebar
-│   ├── dashboard.html          # FullCalendar view
-│   ├── analytics.html          # Dashboard charts for income/expenses/balances
-│   ├── profile.html            # User settings, password changes, account stats
-│   ├── login.html / register.html
-│   ├── upload.html             # Drag-and-drop file upload UI
-│   ├── preview.html            # Pre-save validation screen
-│   ├── statement.html          # Range-wise statement generation UI
-│   ├── summary.html            # Single-day quick summary
-│   ├── ledger_details.html     # Single-day full transaction list
-│   └── statement_passwords.html# Settings panel to manage encrypted bank passwords
-│
-├── static/
-│   └── css/style.css           # Custom UI styling
-│
-└── data/                       # Local Storage (Excluded from Git)
-    ├── auth.db                 # Master auth database
-    ├── users/                  # Directory containing <username>.db files
-    ├── exports/                # Temporary directory for generated exports
-    └── temp/                   # Temporary directory for file uploads
-```
-
----
-
-## 🎛️ Detailed UI Walkthrough & Button Explanations
-
-Here is a top-to-bottom explanation of every screen, modal, dropdown, and individual button in the KC Tracker application:
-
-### 1. Global Navigation Bar & Sidebar (Always Accessible)
-The left-hand sidebar acts as the central command node. Responsive collapsible layouts optimize navigation for both desktop monitors and mobile devices.
-
-#### Core Elements & Buttons:
-- **Mobile Toggle Menu Button (`☰`):**
-  - *Location:* Top corner (visible only on mobile/tablet viewports).
-  - *Action:* Toggles the visibility of the sidebar navigation menu.
-- **Sidebar Brand Logo Area:**
-  - *Location:* Top of the sidebar.
-  - *Details:* Integrates a premium brand white-accent pill wrapping the white-rendered `KC_logo.png` logo.
-- **Profile User Dropdown Button (`profileBtn`):**
-  - *Location:* Directly below the brand logo in the sidebar.
-  - *Visuals:* Displays the user’s first initial in an upper-case circular badge (or custom profile image if uploaded) next to the active username and a subtle downward indicator chevron.
-  - *Action:* Launches the floating Profile Settings dropdown list.
-- **Profile Dropdown Menu Items:**
-  - **`My Profile` Link:** Redirects the user to the Profile Summary page (`/profile`).
-  - **`Sync Drive` / `Connect Drive` Button:** 
-    - Dynamically updates based on Drive authentication status:
-      - *If Unconnected:* Shows a blue **`Connect Google Drive`** button which triggers a modern dialog popup.
-      - *If Request Sent:* Shows a warning-styled **`Awaiting approval...`** non-interactive status bar.
-      - *If Approved:* Displays a green **`Approved! Connect Drive now`** link which launches the Google OAuth 2.0 browser authorization consent screen.
-      - *If Connected:* Displays a grey-accented **`Sync Drive`** button which manually pulls down database changes and pushes up current databases.
-  - **`Change Password` Link:** Activates the secure change password dialog modal overlay.
-  - **`Logout` Button (Danger Accent):** Triggers the secure session invalidation dialog modal.
-- **Sidebar Nav Items (`navHome`, `navUpload`, `navPasswords`, `navStatement`, `navAnalytics`):**
-  - *Action:* Immediate transition between pages without losing active web states.
-
----
-
-### 2. Home Dashboard & Daily Calendar Screen (`/dashboard`)
-The initial screen upon loading the app. Implements a responsive interactive monthly calendar view highlighting transaction activity.
-
-```text
-+--------------------------------------------------------------+
-| [☰] HOME                                     (Profile Drop)  |
-+--------------------------------------------------------------+
-|                                                              |
-|                  <<   May 2026   >>   [Month] [Week]         |
-|   +------+------+------+------+------+------+------+         |
-|   | Sun  | Mon  | Tue  | Wed  | Thu  | Fri  | Sat  |         |
-|   +------+------+------+------+------+------+------+         |
-|   | 24   | 25   | 26   | 27   | 28   | 29   | 30   |         |
-|   |      |      |      |      |      |      |      |         |
-|   |      |      | [Event: Net Credit/Debit green/red] |       |
-|   +------+------+------+------+------+------+------+         |
-|                                                              |
-+--------------------------------------------------------------+
-```
-
-#### Core Elements & Buttons:
-- **FullCalendar Event Cells:**
-  - *Action:* Clicking on any day block containing transaction activity fetches the daily numbers in the background and opens the quick **Daily Summary Modal**.
-- **Calendar Navigation Buttons (`prev`, `next`, `today`):**
-  - *Location:* Top-left header of the calendar.
-  - *Action:* Shifts the active calendar layout backwards or forwards by month or returns focus to the active system date.
-- **Calendar View Toggle Buttons (`Month`, `Week`):**
-  - *Location:* Top-right header of the calendar.
-  - *Action:* Flips the grid resolution between monthly view and detailed hourly/weekly view.
-- **Daily Summary Modal (Popup Overlay):**
-  - Opens on click. Showcases three clean summary cards highlighting **Total Debit**, **Total Credit**, and **Net Cash Balance** alongside a bank-specific breakdown (e.g., HDFC vs SBI balances).
-  - **`View Details` Button (Blue Accent):** Redirects the user directly to the deep-dive ledger screen for that selected date (`/ledger/<date>`).
-  - **`Close` Button (Grey Accent):** Closes the summary overlay.
-- **Drive Access Request Modal:**
-  - **Gmail Address Input Field:** User enters their registered Google account email.
-  - **`Send Request` Button (Blue Accent):** Automatically log-stores the email address in `auth.db`, sets user status to "Requested", and securely transmits an instantaneous notification to the systems admin via Telegram Bot API with quick links to approve.
-  - **Modal Close Icon (`✕`):** Closes the dialog modal.
-
----
-
-### 3. Upload Statement Screen (`/upload`)
-The ingestion portal. This page processes unstructured formats and prepares them for verification.
-
-```text
-+--------------------------------------------------------------+
-| UPLOAD STATEMENT                             (Profile Drop)  |
-+--------------------------------------------------------------+
-|                                                              |
-|  Select Bank (for password-protected files):                 |
-|  [ Select Bank Dropdown  v ]                                 |
-|                                                              |
-|  +-------------------------------------------------------+  |
-|  |                                                       |  |
-|  |                 Drop your file here                   |  |
-|  |       or click to browse -- CSV, Excel, PDF           |  |
-|  |                                                       |  |
-|  +-------------------------------------------------------+  |
-|                                                              |
-|                     [ Upload & Preview ]                     |
-|                                                              |
-+--------------------------------------------------------------+
-```
-
-#### Core Elements & Buttons:
-- **Select Bank Dropdown Select Field:**
-  - *Action:* Allows users to match their statement to a saved bank credential. If matched, the server pulls the bank’s encrypted PDF password from the local vault, decrypts it in memory, and bypasses PDF lock sheets.
-- **Interactive Drag-and-Drop Zone Button (`uploadZone`):**
-  - *Action:* Accepts file dragging or clicking anywhere within the boundary to launch the native browser file explorer. Supports PDF, CSV, XLSX, and XLS formats.
-- **`Upload & Preview` Button (Success Blue Accent):**
-  - *Details:* Starts disabled. Becomes interactive as soon as a valid file is loaded.
-  - *Action:* Securely uploads the file to `data/temp/`, executes parsing pipelines, applies automatic merchant alias logic, caches results in a temporary JSON file (`data/temp/<username>_preview.json`), and redirects the browser to `/preview`.
-
----
-
-### 4. Upload Preview Screen (`/preview`)
-A protective check sheet allowing users to audit parsed transactions before saving them permanently to SQLite.
-
-#### Core Elements & Buttons:
-- **Ledger Date Blocks:** Groups transactions dynamically. If a statement has transactions spanning 5 days, it generates 5 isolated blocks.
-- **Debit Table & Credit Table (Side-by-Side):**
-  - Provides a complete layout view. Debits and Credits are cleanly separated into their respective sides.
-- **Description Input Field (`desc-input`):**
-  - *Details:* A text input block placed inside each transaction row.
-  - *Action:* Allows the user to enter custom descriptions (e.g., "Dinner with friends" or "Office stationary purchase") which are saved as `user_description` alongside the raw narration.
-- **`Save All to Ledger` Button (Green Success Accent):**
-  - *Action:* Flattens the preview grid, grabs all values from user-edited custom description fields, inserts records bulk-wise into the user's isolated SQLite database, deletes the preview cache file from `data/temp/`, triggers a background sync to Google Drive, and routes back to the dashboard showing a success message.
-- **`← Cancel` Button (Grey Outline Accent):**
-  - *Action:* Discards the cached upload, deletes the temp file, and returns to the upload screen.
-
----
-
-### 5. Detailed Daily Ledger Screen (`/ledger/<date>`)
-An absolute deep-dive transaction layout displaying double-entry tables side-by-side.
-
-```text
-KC Tracker/
-│
-├── app.py                      # Main Flask application entry point, routes, auth wrappers
-├── config.py                   # Environment vars, path configs, keys
-├── requirements.txt            # Python dependencies
-├── credentials.json            # (Required) Google Drive OAuth client secrets
-├── token.pickle                # (Auto-generated) Google Drive OAuth session token
-│
-├── backend/                    # Core Python modules
-│   ├── auth.py                 # User authentication (Register/Login/Bcrypt)
-│   ├── balance_validator.py    # Math validator ensuring Balance = Prev Balance + CR - DR
-│   ├── column_mapper.py        # Maps raw header names to standard internal columns
-│   ├── confidence_engine.py    # Assigns confidence scores to parsed rows
-│   ├── database.py             # SQLite CRUD ops for user-specific databases
-│   ├── drcr_classifier.py      # Fixes debit/credit alignment issues in parsed tables
-│   ├── exporter.py             # Generators for PDF, Excel, and TXT ledger exports
-│   ├── extractor.py            # Merchant alias application
-│   ├── format_detector.py      # Detects PDF table structures and quality
-│   ├── garbage_filter.py       # Drops empty rows or non-transaction PDF junk
-│   ├── hdfc_parser.py          # highly specialized fast-parser for HDFC PDFs
-│   ├── ledger.py               # Formatter generating front-end grouped dictionaries
-│   ├── merchant_extractor.py   # Cleans complex transaction narrations to short Merchant Names
-│   ├── parser.py               # The Orchestrator for file parsing
-│   ├── row_segmenter.py        # Combines multi-line transactions in dirty PDFs
-│   ├── security.py             # Fernet encryption/decryption for bank passwords
-│   ├── sync_manager.py         # Google Drive Backup/Restore API logic
-│   ├── sync.py                 # Helper runner for sync functions
-│   └── universal_bank_parser.py# Multi-bank auto-detect parsing engine (25+ banks)
-│
-├── templates/                  # Frontend HTML (Jinja2) templates
-│   ├── base.html               # Master layout with Bootstrap & Sidebar
-│   ├── dashboard.html          # FullCalendar view
-│   ├── analytics.html          # Dashboard charts for income/expenses/balances
-│   ├── profile.html            # User settings, password changes, account stats
-│   ├── login.html / register.html
-│   ├── upload.html             # Drag-and-drop file upload UI
-│   ├── preview.html            # Pre-save validation screen
-│   ├── statement.html          # Range-wise statement generation UI
-│   ├── summary.html            # Single-day quick summary
-│   ├── ledger_details.html     # Single-day full transaction list
-│   └── statement_passwords.html# Settings panel to manage encrypted bank passwords
+├── templates/                  # Jinja2 HTML templates
+│   ├── base.html               # Master layout: sidebar, navbar
+│   ├── dashboard.html          # FullCalendar interactive calendar
+│   ├── analytics.html          # Chart.js income/expense/balance analytics
+│   ├── profile.html            # User account stats, photo upload, bank vault list
+│   ├── login.html              # Login page
+│   ├── register.html           # Registration page
+│   ├── upload.html             # Drag-and-drop file upload zone
+│   ├── preview.html            # Pre-save diagnostics & custom description editor
+│   ├── statement.html          # Range-wise statement with period presets
+│   ├── summary.html            # Single-day quick summary modal target
+│   ├── ledger_details.html     # Full double-entry daily ledger view
+│   └── statement_passwords.html# Encrypted bank password vault management
 │
 ├── static/
-│   └── css/style.css           # Custom UI styling
+│   └── css/style.css           # Custom glassmorphism dark-mode stylesheet
 │
-└── data/                       # Local Storage (Excluded from Git)
-    ├── auth.db                 # Master auth database
-    ├── users/                  # Directory containing <username>.db files
-    ├── exports/                # Temporary directory for generated exports
-    └── temp/                   # Temporary directory for file uploads
+├── data/                       # Runtime storage — excluded from Git
+│   ├── auth.db                 # Master authentication database (users)
+│   ├── users/                  # Per-user SQLite databases: <username>.db
+│   ├── exports/                # Temporary generated export files
+│   ├── backups/                # Generated .kctbackup encrypted backup files
+│   └── temp/                   # Temporary upload staging + preview JSON cache
+│
+└── graphify-out/               # Knowledge graph (auto-generated, do not edit)
 ```
+
+---
+
+## 🛣️ API Route Reference
+
+Both `main.py` (FastAPI) and `app.py` (Flask) expose the same URL surface:
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/` | Redirect → `/dashboard` or `/login` |
+| GET/POST | `/login` | Credential auth; rate-limited (10/min, 50/hr) |
+| GET/POST | `/register` | New user registration; rate-limited (5/hr) |
+| GET | `/logout` | Session clear |
+| GET | `/dashboard` | FullCalendar home screen |
+| GET | `/api/events` | JSON calendar events (credit/debit heat map) |
+| GET | `/api/summary/<date>` | JSON daily totals + per-bank balances |
+| GET | `/summary/<date>` | HTML single-day summary |
+| GET | `/ledger/<date>` | HTML double-entry daily ledger |
+| GET | `/api/ledger/<date>` | JSON ledger data |
+| GET/POST | `/upload` | File upload + parse |
+| GET/POST | `/preview` | Pre-save review & confirm |
+| POST | `/api/add-transaction/<date>` | Manual transaction entry |
+| POST | `/api/update/<txn_id>` | Edit existing transaction |
+| POST | `/api/delete/<txn_id>` | Delete transaction |
+| POST | `/api/alias` | Save merchant display name alias |
+| GET/POST | `/get-statement` | Range statement with period presets |
+| GET | `/export/date/<date>/<fmt>` | Export single day (pdf/xlsx/txt) |
+| GET | `/export/range/<fmt>` | Export date range |
+| GET | `/analytics` | Chart.js analytics dashboard |
+| GET | `/api/chart-data` | JSON daily summaries for charts |
+| GET | `/api/bank-balances` | JSON per-bank balance time series |
+| GET/POST | `/statement-passwords` | Manage encrypted PDF password vault |
+| POST | `/api/bank-password/<bank_id>` | Delete a saved bank credential |
+| GET | `/profile` | User profile & account stats |
+| POST | `/profile/upload-photo` | Upload profile picture |
+| POST | `/change-password` | Change account password |
+| GET/POST | `/settings` | App settings (backup/import UI) |
+| POST | `/api/backup/export` | Export encrypted `.kctbackup` file |
+| POST | `/api/backup/import/preview` | Preview backup metadata before import |
+| POST | `/api/backup/import/execute` | Execute full restore or merge import |
+| GET | `/api/recent-transactions` | JSON recent transactions (FastAPI only) |
+| GET | `/api/debug-bank` | Debug: raw transaction + summary samples |
+
+---
+
+## 🎛️ UI Walkthrough
+
+### Sidebar (Global)
+- **Profile badge** — initial avatar or uploaded photo; opens dropdown with Change Password, Logout
+- **Nav links** — Home, Upload, Passwords, Statement, Analytics, Settings
+
+### Dashboard (`/dashboard`)
+- FullCalendar monthly/weekly grid with green/red day backgrounds showing net cash flow
+- Click any day → **Daily Summary Modal** (Total Debit / Credit / Net + per-bank breakdown) → **View Details** opens full ledger
+
+### Upload (`/upload`)
+- Bank dropdown (pre-populated from saved vault + 13 default banks)
+- Drag-and-drop zone (PDF / CSV / XLSX / XLS, up to 16 MB)
+- Parsing runs in the background; preview cached as `data/temp/<username>_preview.json`
+
+### Preview (`/preview`)
+- Shows parsed transactions grouped by date in double-entry layout
+- Inline `user_description` text fields for custom notes per transaction
+- Diagnostics panel warns if reconciliation failed (`can_save = False` blocks save)
+- **Save All** → bulk insert → redirect to dashboard
+
+### Ledger Details (`/ledger/<date>`)
+- Side-by-side Debit / Credit tables
+- Inline edit, delete, and merchant alias saving per row
+- Previous / Next day navigation
+
+### Analytics (`/analytics`)
+- Monthly income vs. expense bar charts
+- Running balance line chart
+- Per-bank balance over time (via `rebuild_daily_summary`)
+
+### Statement Generator (`/get-statement`)
+- Preset periods: This Month, Last Month, Last 3/6 Months, This Year, FY Current/Previous, Recent 30 days, individual month, or custom date range
+- Renders grouped ledger; export buttons for PDF / Excel / TXT
+
+### Bank Password Vault (`/statement-passwords`)
+- Add / delete encrypted PDF passwords per bank
+- Passwords encrypted with Fernet before storage; never included in exports or logs
+
+### Settings (`/settings`)
+- **Export Backup** — generates an AES-encrypted `.kctbackup` file containing all transactions, merchant aliases, and profile image
+- **Import Backup** — upload a `.kctbackup` file, preview its metadata (transaction count, date range, banks), then choose **Full Restore** (overwrite) or **Merge** (additive)
 
 ---
 
 ## ⚙️ Setup & Installation
 
 ### Prerequisites
-*   Python 3.8+
-*   Google Drive API Credentials (`credentials.json`)
+- Python 3.10+
+- Tesseract OCR + Poppler (required only for scanned/image-only PDFs)
 
-### 1. Install Dependencies
+### 1. Clone & Install
+
 ```bash
-# Clone the repository
 git clone https://github.com/your-repo/kc-tracker.git
-cd "KC Tracker"
-
-# Install all Python libraries
+cd kc-tracker
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment Parameters
-Copy the template configuration file into an active environment file:
+### 2. Configure Environment
+
 ```bash
 cp .env.example .env
 ```
-Open `.env` in a text editor and fill in your unique values:
+
+Edit `.env`:
+
 ```ini
-# Generate a secret key for Flask session signing
-SECRET_KEY="enter-a-highly-random-string-here"
+# Flask/FastAPI session signing key
+SECRET_KEY="generate-with: python -c \"import secrets; print(secrets.token_hex(32))\""
 
-# Generate a 32-url-safe-base64-encoded bytes string for AES encryption.
-# You can generate this by running: 
-# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-ENCRYPTION_KEY="your-newly-generated-fernet-key-here="
-
-# (Optional) Telegram Bot API Integration
-TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
-TELEGRAM_ADMIN_CHAT_ID="your-personal-telegram-chat-id"
+# Fernet AES-256 key for bank password vault and backups
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY="your-fernet-key-here="
 ```
 
-### 3. Setting Up the Google Drive API
-1. Navigate to the [Google Cloud Console](https://console.cloud.google.com/).
-2. Create a new project and search for the **Google Drive API** in the library, then click **Enable**.
-3. Go to the **OAuth Consent Screen** settings, select **External**, and add your testing Google account email.
-4. Click on **Credentials**, select **Create Credentials**, and choose **OAuth Client ID**.
-5. Set the Application type to **Desktop App** and click create.
-6. Download the resulting JSON credentials file, rename it to `credentials.json`, and place it in the root folder of this project (`KC Tracker/`).
+### 3. Run the Server
 
-### 4. Running the Local Server
-Launch the main application file:
+**FastAPI (primary):**
+```bash
+python main.py
+# or: uvicorn main:app --host 127.0.0.1 --port 5000 --reload
+```
+
+**Flask (legacy):**
 ```bash
 python app.py
 ```
-- The local server starts at `http://127.0.0.1:5000/`.
-- Open your browser, register a user account, and log in.
-- The first time a user tries to connect Google Drive, a secure tab launches requesting Google authentication permissions, creating a secure token file. All future syncs happen silently in the background!
+
+Open `http://127.0.0.1:5000/` → register → log in.
+
+The Flask launcher starts a local Waitress server and opens the default browser automatically.
+
+### 4. Build the Windows `.exe`
+
+The Flask path can be packaged as a single-file executable.
+
+```powershell
+.\build_kctracker.ps1 -Clean
+```
+
+Output:
+```text
+dist\KCTracker.exe
+```
+
+Keep only `.env` next to the exe at runtime.
+
+The executable creates and uses these writable folders beside itself:
+
+- `data/`
+- `static/img/profiles/`
+
+---
+
+## 🔒 Security Model
+
+| Concern | Implementation |
+|---------|---------------|
+| User passwords | bcrypt salted hash stored in `auth.db` |
+| Bank PDF passwords | Fernet (AES-256-CBC) encrypted at rest in per-user DB; decrypted in-memory only |
+| Session integrity | Server-side session key (`SECRET_KEY`); `SameSite=lax` cookie |
+| Login brute-force | Rate-limited: 10 req/min, 50 req/hr (FastAPI: in-memory token bucket; Flask: Flask-Limiter) |
+| Backup encryption | PBKDF2-HMAC-SHA256 (600,000 iterations) key derivation + Fernet (AES-128-CBC + HMAC-SHA256) encryption on `.kctbackup` files |
+| Data isolation | Each user has a dedicated `data/users/<username>.db`; no cross-user queries |
+| Encryption key | Never included in backups; never falls back to a hardcoded value (raises `RuntimeError` if missing) |
+
+---
+
+## 🏦 Supported Banks
+
+The column mapper and merchant extractor have built-in patterns for:
+
+**HDFC · SBI · ICICI · Axis · BOB · IOB · Indian Bank · Canara · KVB · PNB · Kotak Mahindra · Yes Bank**
+
+Any additional bank can be added by selecting **"Other"** at upload time. The system will auto-detect and map columns; a custom bank name can be saved to the vault for password-protected statements.
+
+---
+
+## 📤 Export Formats
+
+| Format | Route | Library Used |
+|--------|-------|-------------|
+| **PDF** | `/export/date/<date>/pdf` | fpdf2 |
+| **Excel** | `/export/date/<date>/xlsx` | openpyxl |
+| **Plain Text** | `/export/date/<date>/txt` | Built-in |
+| Range exports | `/export/range/<fmt>?start=&end=` | Same libraries |
+
+Exports are generated on-demand, streamed to the browser, then deleted from `data/exports/`.
+
+---
+
+## 💾 Data Backup & Restore
+
+KC Tracker v2.0.0 ships a fully offline, self-contained backup system accessible from **Settings (`/settings`)**.
+
+### Backup Format — `.kctbackup`
+
+```
+[8-byte magic: KCTBKP01] [4-byte header length] [JSON header] [Fernet-encrypted gzip tar]
+```
+
+The outer JSON **header** (readable without a password) contains:
+- App version, export date, originating username
+- Data summary: transaction count, date range, bank count
+- `has_profile_image` flag
+
+The encrypted payload is a **gzip-compressed tar** archive containing:
+1. `user.db` — the full per-user SQLite database (transactions, aliases, bank credentials)
+2. `auth_user.json` — the login credential row (for full restore)
+3. `profile.jpg` — profile photo (if one exists)
+4. `manifest.json` — SHA-256 checksums for all files
+
+### Export
+- Navigate to **Settings → Backup** and enter a backup password.
+- `export_backup(username, password)` generates `data/backups/<username>_backup_<timestamp>.kctbackup` and streams it to the browser.
+- Encryption key is derived per-file using PBKDF2-HMAC-SHA256 (600,000 iterations) with a random 16-byte salt.
+
+### Import
+1. **Preview** — upload the `.kctbackup` file; the server reads the unencrypted header and returns metadata (no password needed).
+2. **Authenticate** — provide the backup password; the server decrypts and verifies SHA-256 checksums of all inner files.
+3. **Choose mode:**
+   - **Full Restore** — overwrites the target user's database, login credentials, and profile image atomically.
+   - **Merge** — additively inserts new transactions (`INSERT OR IGNORE`) and merchant aliases (`ON CONFLICT UPDATE`) without touching existing records; daily summaries are rebuilt after.
+
