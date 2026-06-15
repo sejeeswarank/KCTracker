@@ -17,7 +17,7 @@
 
 ---
 
-## 🗺️ System Architecture
+## System Architecture
 
 The project exposes **two parallel servers** sharing the same backend modules:
 
@@ -69,9 +69,9 @@ After phase 10, `confidence_engine.py` assigns a quality score. The **diagnostic
 
 ---
 
-## 💻 Technical Stack
+## Technical Stack
 
-### 🐍 Backend
+### Backend
 
 | Layer | Technology |
 |-------|-----------|
@@ -86,7 +86,7 @@ After phase 10, `confidence_engine.py` assigns a quality score. The **diagnostic
 | Backup format | Custom `.kctbackup` — PBKDF2 key derivation + Fernet-encrypted gzip tar |
 | Async I/O | **anyio** for file operations in FastAPI routes |
 
-### 🎨 Frontend
+### Frontend
 
 | Layer | Technology |
 |-------|-----------|
@@ -98,7 +98,7 @@ After phase 10, `confidence_engine.py` assigns a quality score. The **diagnostic
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 kt2/
@@ -202,7 +202,7 @@ Both `main.py` (FastAPI) and `app.py` (Flask) expose the same URL surface:
 
 ---
 
-## 🎛️ UI Walkthrough
+## UI Walkthrough
 
 ### Sidebar (Global)
 - **Profile badge** — initial avatar or uploaded photo; opens dropdown with Change Password, Logout
@@ -247,9 +247,9 @@ Both `main.py` (FastAPI) and `app.py` (Flask) expose the same URL surface:
 
 ---
 
-## ⚙️ Setup &amp; Installation
+## Setup &amp; Installation
 
-### 📋 Prerequisites
+### Prerequisites
 
 <p>
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+"/>
@@ -324,7 +324,7 @@ The executable creates and uses these writable folders beside itself:
 
 ---
 
-## 🔒 Security Model
+## Security Model
 
 <p>
   <img src="https://img.shields.io/badge/bcrypt-Password_Hashing-4A90D9?style=flat-square&logo=keycdn&logoColor=white" alt="bcrypt"/>
@@ -335,27 +335,20 @@ The executable creates and uses these writable folders beside itself:
 
 | Concern | Implementation |
 |---------|---------------|
-| 🔐 User passwords | bcrypt salted hash stored in `auth.db` |
-| 🏦 Bank PDF passwords | Fernet (AES-256-CBC) encrypted at rest in per-user DB; decrypted in-memory only |
-| 🍪 Session integrity | Server-side session key (`SECRET_KEY`); `SameSite=lax` cookie |
-| 🚦 Login brute-force | Rate-limited: 10 req/min, 50 req/hr (FastAPI: in-memory token bucket; Flask: Flask-Limiter) |
-| 💾 Backup encryption | PBKDF2-HMAC-SHA256 (600,000 iterations) key derivation + Fernet (AES-128-CBC + HMAC-SHA256) on `.kctbackup` files |
-| 🏢 Data isolation | Each user has a dedicated `data/users/<username>.db`; no cross-user queries |
-| 🔑 Encryption key | Never included in backups; never falls back to a hardcoded value (raises `RuntimeError` if missing) |
+| User passwords | bcrypt salted hash stored in `auth.db` |
+| Bank PDF passwords | Fernet (AES-256-CBC) encrypted at rest in per-user DB; decrypted in-memory only |
+| Session integrity | Server-side session key (`SECRET_KEY`); `SameSite=lax` cookie |
+| Login brute-force | Rate-limited: 10 req/min, 50 req/hr (FastAPI: in-memory token bucket; Flask: Flask-Limiter) |
+| Backup encryption | PBKDF2-HMAC-SHA256 (600,000 iterations) key derivation + Fernet (AES-128-CBC + HMAC-SHA256) on `.kctbackup` files |
+| Data isolation | Each user has a dedicated `data/users/<username>.db`; no cross-user queries |
+| Encryption key | Never included in backups; never falls back to a hardcoded value (raises `RuntimeError` if missing) |
 
 ---
 
-## 🏦 Supported Banks
+## Supported Banks
 
 <p>
   <img src="https://img.shields.io/badge/HDFC-Bank-004C8C?style=flat-square" alt="HDFC"/>
-  <img src="https://img.shields.io/badge/SBI-State_Bank-2D3A8C?style=flat-square" alt="SBI"/>
-  <img src="https://img.shields.io/badge/ICICI-Bank-F05A22?style=flat-square" alt="ICICI"/>
-  <img src="https://img.shields.io/badge/Axis-Bank-800000?style=flat-square" alt="Axis"/>
-  <img src="https://img.shields.io/badge/Kotak-Mahindra-ED1C24?style=flat-square" alt="Kotak"/>
-  <img src="https://img.shields.io/badge/Yes-Bank-00529B?style=flat-square" alt="Yes Bank"/>
-  <img src="https://img.shields.io/badge/PNB-Punjab_National-800080?style=flat-square" alt="PNB"/>
-  <img src="https://img.shields.io/badge/Canara-Bank-007932?style=flat-square" alt="Canara"/>
   <img src="https://img.shields.io/badge/BOB-Bank_of_Baroda-F26522?style=flat-square" alt="BOB"/>
   <img src="https://img.shields.io/badge/IOB-Indian_Overseas-0057A8?style=flat-square" alt="IOB"/>
   <img src="https://img.shields.io/badge/Indian-Bank-CC0000?style=flat-square" alt="Indian Bank"/>
@@ -364,13 +357,13 @@ The executable creates and uses these writable folders beside itself:
 
 The column mapper and merchant extractor have built-in patterns for:
 
-**HDFC · SBI · ICICI · Axis · BOB · IOB · Indian Bank · Canara · KVB · PNB · Kotak Mahindra · Yes Bank**
+**HDFC · BOB · IOB · Indian Bank · KVB**
 
 Any additional bank can be added by selecting **"Other"** at upload time. The system will auto-detect and map columns; a custom bank name can be saved to the vault for password-protected statements.
 
 ---
 
-## 📤 Export Formats
+## Export Formats
 
 | Format | Route | Library Used |
 |--------|-------|-------------|
@@ -383,11 +376,11 @@ Exports are generated on-demand, streamed to the browser, then deleted from `dat
 
 ---
 
-## 💾 Data Backup &amp; Restore
+## Data Backup &amp; Restore
 
 KC Tracker v2.0.0 ships a fully offline, self-contained backup system accessible from **Settings (`/settings`)**.
 
-### 📦 Backup Format — `.kctbackup`
+### Backup Format — `.kctbackup`
 
 ```
 [8-byte magic: KCTBKP01] [4-byte header length] [JSON header] [Fernet-encrypted gzip tar]
