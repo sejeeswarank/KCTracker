@@ -160,7 +160,7 @@ kt2/
 
 ---
 
-## 🛣️ API Route Reference
+## API Route Reference
 
 Both `main.py` (FastAPI) and `app.py` (Flask) expose the same URL surface:
 
@@ -204,44 +204,44 @@ Both `main.py` (FastAPI) and `app.py` (Flask) expose the same URL surface:
 
 ## 🎛️ UI Walkthrough
 
-### 🔲 Sidebar (Global)
+### Sidebar (Global)
 - **Profile badge** — initial avatar or uploaded photo; opens dropdown with Change Password, Logout
 - **Nav links** — Home, Upload, Passwords, Statement, Analytics, Settings
 
-### 🏠 Dashboard (`/dashboard`)
+### Dashboard (`/dashboard`)
 - FullCalendar monthly/weekly grid with green/red day backgrounds showing net cash flow
 - Click any day → **Daily Summary Modal** (Total Debit / Credit / Net + per-bank breakdown) → **View Details** opens full ledger
 
-### 📤 Upload (`/upload`)
+### Upload (`/upload`)
 - Bank dropdown (pre-populated from saved vault + 13 default banks)
 - Drag-and-drop zone (PDF / CSV / XLSX / XLS, up to 16 MB)
 - Parsing runs in the background; preview cached as `data/temp/<username>_preview.json`
 
-### 🔍 Preview (`/preview`)
+### Preview (`/preview`)
 - Shows parsed transactions grouped by date in double-entry layout
 - Inline `user_description` text fields for custom notes per transaction
 - Diagnostics panel warns if reconciliation failed (`can_save = False` blocks save)
 - **Save All** → bulk insert → redirect to dashboard
 
-### 📒 Ledger Details (`/ledger/<date>`)
+### Ledger Details (`/ledger/<date>`)
 - Side-by-side Debit / Credit tables
 - Inline edit, delete, and merchant alias saving per row
 - Previous / Next day navigation
 
-### 📊 Analytics (`/analytics`)
+### Analytics (`/analytics`)
 - Monthly income vs. expense bar charts
 - Running balance line chart
 - Per-bank balance over time (via `rebuild_daily_summary`)
 
-### 🗓️ Statement Generator (`/get-statement`)
+### Statement Generator (`/get-statement`)
 - Preset periods: This Month, Last Month, Last 3/6 Months, This Year, FY Current/Previous, Recent 30 days, individual month, or custom date range
 - Renders grouped ledger; export buttons for PDF / Excel / TXT
 
-### 🔑 Bank Password Vault (`/statement-passwords`)
+### Bank Password Vault (`/statement-passwords`)
 - Add / delete encrypted PDF passwords per bank
 - Passwords encrypted with Fernet before storage; never included in exports or logs
 
-### ⚙️ Settings (`/settings`)
+### Settings (`/settings`)
 - **Export Backup** — generates an AES-encrypted `.kctbackup` file containing all transactions, merchant aliases, and profile image
 - **Import Backup** — upload a `.kctbackup` file, preview its metadata (transaction count, date range, banks), then choose **Full Restore** (overwrite) or **Merge** (additive)
 
