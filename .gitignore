@@ -1,47 +1,33 @@
-# Auth and environment secrets
 .env
 credentials.json
 client_secret_*.json
 token.pickle
 token*.json
-
-# Database files
 *.db
-
-# Python
 __pycache__/
 *.pyc
-
-# Virtual environments
 venv/
 .venv/
 .venv_new/
 env/
 .env/
-
-# IDE
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Local data
 data/
-
-# Pytest
 .pytest_cache/
-
-# Build / output artifacts
 graphify-out/
 *.log
 dist/
 build/
 *.egg-info/
-
-# Gemini IDE
 .gemini/
-
-# Testing
+AGENTS.md
+architecture.drawio
+pyrightconfig.json
+.codex/
+poppler/
+tesseract/
+release/
 tests/

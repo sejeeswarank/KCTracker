@@ -12,7 +12,6 @@
 
 <p align="center">
   A self-hosted, multi-user financial dashboard that converts raw bank statements (PDF, CSV, Excel) into a structured, searchable, double-entry ledger. Built for individuals and small businesses — featuring an auto-learning merchant intelligence engine, AES-256 encrypted bank password vault, and a fully offline encrypted backup/restore system, all behind a beautiful glassmorphism UI.<br><br>
-  <strong>v2.0.0</strong> removes cloud sync dependencies for a fully self-contained deployment.
 </p>
 
 ---
