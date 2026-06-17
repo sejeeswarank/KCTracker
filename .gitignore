@@ -38,3 +38,4 @@ requirements.txt
 app.py
 main.py
 config.py
+.gitignore
