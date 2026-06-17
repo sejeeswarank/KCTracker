@@ -411,5 +411,5 @@ The encrypted payload is a **gzip-compressed tar** archive containing:
 1. **Preview** — upload the `.kctbackup` file; the server reads the unencrypted header and returns metadata (no password needed).
 2. **Authenticate** — provide the backup password; the server decrypts and verifies SHA-256 checksums of all inner files.
 3. **Choose mode:**
-   - 🔄 **Full Restore** — overwrites the target user's database, login credentials, and profile image atomically.
-   - ➕ **Merge** — additively inserts new transactions (`INSERT OR IGNORE`) and merchant aliases (`ON CONFLICT UPDATE`) without touching existing records; daily summaries are rebuilt after.
+   - **Full Restore** — overwrites the target user's database, login credentials, and profile image atomically.
+   - **Merge** — additively inserts new transactions (`INSERT OR IGNORE`) and merchant aliases (`ON CONFLICT UPDATE`) without touching existing records; daily summaries are rebuilt after.
