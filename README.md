@@ -370,7 +370,7 @@ Any additional bank can be added by selecting **"Other"** at upload time. The sy
 | ![TXT](https://img.shields.io/badge/Plain_Text-Export-555555?style=flat-square&logo=textpattern&logoColor=white) | `/export/date/<date>/txt` | Built-in |
 | Range exports | `/export/range/<fmt>?start=&end=` | Same libraries |
 
-Exports are generated on-demand, streamed to the browser, then deleted from `data/exports/`.
+Exports are generated on-demand, streamed to the browser,then deleted from `data/exports/`.
 
 ---
 
