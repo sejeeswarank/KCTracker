@@ -21,24 +21,19 @@
 </p>
 
 ---
+## Installation
 
-## Features
 
-- **Statement Parsing** — Upload PDF, CSV, or Excel bank statements and get clean, structured transactions automatically
-- **Multi-Bank Support** — Built-in parsers for HDFC, IOB, Indian Bank, BOB, and KVB
-- **Interactive Dashboard** — FullCalendar monthly view with green/red day highlights showing net daily cash flow
-- **Double-Entry Ledger** — View transactions grouped by date in a debit/credit layout with inline editing
-- **Merchant Intelligence** — Auto-cleans UPI/NEFT narrations and learns your custom merchant names over time
-- **Analytics** — Monthly income vs expense bar charts and running balance line charts per bank
-- **Statement Generator** — Export statements by preset periods (this month, last 3 months, FY, custom range)
-- **Export Formats** — Download any ledger view as PDF, Excel, or plain text
-- **Encrypted Vault** — Store PDF statement passwords securely — decrypted in-memory only at parse time
-- **Offline Backup** — Full encrypted backup and restore with password protection; no cloud required
-- **Multi-User** — Each user has an isolated database; no data is shared between accounts
-- **Offline & Private** — Runs entirely on your machine; no telemetry, no internet required
+1. Go to the [Releases](../../releases) page
+2. Download `KCTracker.Setup.exe`
+3. Run the installer and follow the on-screen steps
+4. Launch **KC Tracker** from the desktop shortcut
+
+The app opens automatically in your default browser at `http://127.0.0.1:5000`.  
+A system tray icon lets you reopen or exit the app at any time.
+
 
 ---
-
 ## Supported Banks
 
 <p>
@@ -55,18 +50,20 @@ Built-in statement parsers are available for:
 
 Additional bank formats will be added in future releases.
 ---
+## Features
 
-## Installation
-
-
-1. Go to the [Releases](../../releases) page
-2. Download `KCTracker.Setup.exe`
-3. Run the installer and follow the on-screen steps
-4. Launch **KC Tracker** from the desktop shortcut
-
-The app opens automatically in your default browser at `http://127.0.0.1:5000`.  
-A system tray icon lets you reopen or exit the app at any time.
-
+- **Statement Parsing** — Upload PDF, CSV, or Excel bank statements and get clean, structured transactions automatically
+- **Multi-Bank Support** — Built-in parsers for HDFC, IOB, Indian Bank, BOB, and KVB
+- **Interactive Dashboard** — FullCalendar monthly view with green/red day highlights showing net daily cash flow
+- **Double-Entry Ledger** — View transactions grouped by date in a debit/credit layout with inline editing
+- **Merchant Intelligence** — Auto-cleans UPI/NEFT narrations and learns your custom merchant names over time
+- **Analytics** — Monthly income vs expense bar charts and running balance line charts per bank
+- **Statement Generator** — Export statements by preset periods (this month, last 3 months, FY, custom range)
+- **Export Formats** — Download any ledger view as PDF, Excel, or plain text
+- **Encrypted Vault** — Store PDF statement passwords securely — decrypted in-memory only at parse time
+- **Offline Backup** — Full encrypted backup and restore with password protection; no cloud required
+- **Multi-User** — Each user has an isolated database; no data is shared between accounts
+- **Offline & Private** — Runs entirely on your machine; no telemetry, no internet required
 
 ---
 
