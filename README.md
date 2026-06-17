@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="assets/kc_logo.png" alt="KC Tracker Logo" width="220"><h1 align="center">KC Tracker</h1>
+  <img src="assets/kc_logo.png" alt="KC Tracker Logo" width="140" style="vertical-align: middle;">
+  <span style="font-size: 48px; font-weight: bold; vertical-align: middle; margin-left: 15px;">
+    KC Tracker
+  </span>
 </p>
-
-
-
 <p align="center">
   <strong>Banking Ledger & Statement Parser Suite</strong>
 </p>
