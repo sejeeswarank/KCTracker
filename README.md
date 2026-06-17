@@ -122,7 +122,6 @@ kt2/
 │   ├── garbage_filter.py       # Strips non-transaction rows from raw extractions
 │   ├── ledger.py               # Groups transactions into double-entry ledger dicts
 │   ├── merchant_extractor.py   # Regex-based narration → merchant name cleaning
-│   ├── notifier.py             # Stub only — Drive/Telegram integration removed in v2.0.0
 │   ├── ocr_pipeline.py         # pdf2image → pytesseract OCR pipeline
 │   ├── parser.py               # Orchestrator: parse_statement_with_diagnostics()
 │   ├── pdf_engine.py           # Evidence-based multi-mode PDF extraction engine
