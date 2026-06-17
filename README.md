@@ -53,8 +53,7 @@ Built-in statement parsers are available for:
 
 **HDFC · BOB · IOB · Indian Bank · KVB**
 
-Any other bank can be used by selecting **"Other"** at upload time — the system will auto-detect and map columns from the statement.
-
+Additional bank formats will be added in future releases.
 ---
 
 ## Installation
@@ -62,7 +61,7 @@ Any other bank can be used by selecting **"Other"** at upload time — the syste
 > **No Python installation required.** KC Tracker ships as a standalone Windows executable.
 
 1. Go to the [Releases](../../releases) page
-2. Download `KCTracker_Setup_v1.0.0.exe`
+2. Download `KCTracker.Setup.exe`
 3. Run the installer and follow the on-screen steps
 4. Launch **KC Tracker** from the desktop shortcut
 
