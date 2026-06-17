@@ -50,6 +50,7 @@ Built-in statement parsers are available for:
 Additional bank formats will be added in future releases.
 
 ---
+
 ## Features
 
 - **Statement Parsing** — Upload PDF, CSV, or Excel bank statements and get clean, structured transactions automatically
