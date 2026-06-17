@@ -1,12 +1,12 @@
-<p align="center">
-  <img src="assets/kc_logo.png" alt="KC Tracker Logo" width="140" style="vertical-align: middle;">
-  <span style="font-size: 48px; font-weight: bold; vertical-align: middle; margin-left: 15px;">
-    KC Tracker
-  </span>
-</p>
-<p align="center">
-  <strong>Banking Ledger & Statement Parser Suite</strong>
-</p>
+<div align="center">
+
+<img src="assets/kc_logo.png" alt="KC Tracker Logo" width="160"/>
+
+# KC Tracker
+
+**Banking Ledger & Statement Parser Suite**
+
+</div>
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.0.0-6C63FF?style=for-the-badge&logo=git&logoColor=white" alt="Version"/>
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
