@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="static\img\logo.png" alt="KC Tracker Logo" width="220">
+  <img src="static/img/logo.png" alt="KC Tracker Logo" width="220">
 </p>
 
 <h1 align="center">KC Tracker</h1>
