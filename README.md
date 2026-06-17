@@ -1,4 +1,6 @@
-# KC Tracker — Banking Ledger &amp; Parser Suite
+# KC Tracker
+
+**Banking Ledger & Statement Parser Suite**
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.0.0-6C63FF?style=for-the-badge&logo=git&logoColor=white" alt="Version"/>
