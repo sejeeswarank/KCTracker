@@ -25,7 +25,7 @@
 
 
 1. Go to the [Releases](../../releases) page
-2. Download `KCTracker.Setup.exe`
+2. Download `KCTracker.Setup.exe`(https://github.com/sejeeswarank/KCTracker/releases/download/v1.0.0/KCTracker.Setup.exe)
 3. Run the installer and follow the on-screen steps
 4. Launch **KC Tracker** from the desktop shortcut
 
