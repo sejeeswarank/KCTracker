@@ -1,6 +1,5 @@
-<p align="center">
-  # KC Tracker
-</p>
+# KC Tracker
+
 **Banking Ledger & Statement Parser Suite**
 
 <p align="center">
