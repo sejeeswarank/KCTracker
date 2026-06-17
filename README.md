@@ -58,7 +58,6 @@ Additional bank formats will be added in future releases.
 
 ## Installation
 
-> **No Python installation required.** KC Tracker ships as a standalone Windows executable.
 
 1. Go to the [Releases](../../releases) page
 2. Download `KCTracker.Setup.exe`
