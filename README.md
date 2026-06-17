@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/kc_logo.png" alt="KC Tracker Logo" width="220">
+  <img src="assets/kc_logo.png" alt="KC Tracker Logo" width="220"><h1 align="center">KC Tracker</h1>
 </p>
 
-<h1 align="center">KC Tracker</h1>
+
 
 <p align="center">
   <strong>Banking Ledger & Statement Parser Suite</strong>
