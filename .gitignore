@@ -30,3 +30,10 @@ pyrightconfig.json
 poppler/
 tesseract/
 tests/
+backend/
+static/
+templates/
+pyrightconfig.json
+requirements.txt
+app.py
+main.py
