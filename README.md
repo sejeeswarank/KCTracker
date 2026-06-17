@@ -67,7 +67,6 @@ Additional bank formats will be added in future releases.
 The app opens automatically in your default browser at `http://127.0.0.1:5000`.  
 A system tray icon lets you reopen or exit the app at any time.
 
-> **Your data** is stored in `%APPDATA%\KCTracker\` — never inside Program Files.
 
 ---
 
@@ -157,13 +156,7 @@ KC Tracker uses a custom `.kctbackup` format for offline backup and restore.
 - 150~200 MB disk space
 - A modern browser like (Chrome, Edge, Firefox)
 
----
 
-## Screenshots
-
-> *Coming soon*
-
----
 
 <div align="center">
 
