@@ -47,8 +47,8 @@ A system tray icon lets you reopen or exit the app at any time.
 Built-in statement parsers are available for:
 
 **HDFC · BOB · IOB · Indian Bank · KVB**
-
 Additional bank formats will be added in future releases.
+
 ---
 ## Features
 
