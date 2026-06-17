@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/kc_logo.png" alt="KC Tracker Logo" width="160"/>
+<img src="assets/kc_logo.png" alt="KC Tracker Logo" width="120"/>
 
 # KC Tracker
 
@@ -29,8 +29,8 @@ The project exposes **two parallel servers** sharing the same backend modules:
 
 | Server | File | Framework | Purpose |
 |--------|------|-----------|---------| 
-| **Primary** | `main.py` | ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) **FastAPI + Uvicorn** | Production async server (current default) |
-| **Legacy** | `app.py` | ![Flask](https://img.shields.io/badge/Flask-000000?style=flat-square&logo=flask&logoColor=white) **Flask + Flask-Limiter** | Retained for compatibility; same routes |
+| **Primary** | `main.py` | **FastAPI + Uvicorn** | Production async server (current default) |
+| **Legacy** | `app.py` | **Flask + Flask-Limiter** | Retained for compatibility; same routes |
 
 Both servers share all `backend/` modules, `templates/`, `static/`, `data/`, and `config.py`.
 
