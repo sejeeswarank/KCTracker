@@ -29,5 +29,4 @@ pyrightconfig.json
 .codex/
 poppler/
 tesseract/
-release/
 tests/
