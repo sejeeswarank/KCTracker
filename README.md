@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/kc_logo.png" alt="KC Tracker Logo" width="120"/>
+<img src="assets/kc_logo.png" alt="KC Tracker Logo" width="140"/>
 
 # KC Tracker
 
