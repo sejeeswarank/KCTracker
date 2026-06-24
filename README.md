@@ -156,7 +156,7 @@ KC Tracker uses a custom `.kctbackup` format for offline backup and restore.
 - A modern browser like (Chrome, Edge, Firefox)
 
 
-
+## New Version Released
 <div align="center">
 
 Made with ♥ for personal finance clarity
